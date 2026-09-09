@@ -6,6 +6,7 @@ import { TrendingUp, Plus, RefreshCcw, FileSpreadsheet, FileText, X } from "luci
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
+import { ReadOnlyBanner } from "@/components/read-only-banner"
 
 const months = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
 
@@ -14,7 +15,8 @@ export default function IntakterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canEdit } = useActiveOrg()
+    const canEditIncome = canEdit('income')
     const [items, setItems] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedMonth, setSelectedMonth] = useState("Alla")
@@ -81,11 +83,15 @@ export default function IntakterPage() {
                     <button onClick={fetchItems} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors">
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
-                    <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground" style={{ background: '#1A1A1A' }}>
-                        <Plus size={15} /> {t('page.income.new')}
-                    </button>
+                    {canEditIncome && (
+                        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground" style={{ background: '#1A1A1A' }}>
+                            <Plus size={15} /> {t('page.income.new')}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {!canEditIncome && <ReadOnlyBanner />}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
@@ -201,6 +207,7 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!supabase) return
+        if (!activeOrgId) return
         setLoading(true)
         const total = (Number(data.medlems_avgift)||0) + (Number(data.gavor)||0) + (Number(data.ungdomar)||0) + (Number(data.annat)||0)
         const { error } = await supabase.from('intakter').insert([{ ...data, total, organisation_id: activeOrgId }])

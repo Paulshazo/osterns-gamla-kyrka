@@ -15,10 +15,9 @@ export default function SettingsPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canManageUsers, loading: orgLoading } = useActiveOrg()
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
-    const [currentUserRole, setCurrentUserRole] = useState("user")
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const [showApiKey, setShowApiKey] = useState(false)
 
@@ -43,14 +42,6 @@ export default function SettingsPage() {
     useEffect(() => {
         if (!supabase) return
         const init = async () => {
-            try {
-                const { data: { user } } = await supabase.auth.getUser()
-                if (user?.id) {
-                    const { data } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-                    if (data?.role) setCurrentUserRole(data.role)
-                }
-            } catch { /* ignore */ }
-
             try {
                 // Load org-specific settings (fall back to id=1 for backward compatibility)
                 let query = supabase
@@ -102,11 +93,11 @@ export default function SettingsPage() {
             setLoading(false)
         }
         init()
-    }, [supabase])
+    }, [supabase, activeOrgId])
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!supabase) return
+        if (!supabase || !canManageUsers) return
         setSaving(true)
         setMessage(null)
         try {
@@ -213,7 +204,18 @@ export default function SettingsPage() {
         )
     }
 
-    if (currentUserRole === 'user') {
+    if (orgLoading) {
+        return (
+            <div className="flex h-[50vh] items-center justify-center">
+                <div className="flex items-center gap-3 text-muted-foreground">
+                    <Loader2 className="animate-spin" size={20} />
+                    {t('common.loading')}
+                </div>
+            </div>
+        )
+    }
+
+    if (!canManageUsers) {
         return (
             <div className="flex items-center justify-center h-[50vh]">
                 <div className="text-center">

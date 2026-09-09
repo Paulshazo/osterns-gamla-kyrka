@@ -83,7 +83,7 @@ const translations = {
 
         // Dashboard
         "page.dashboard.title":              "Summering",
-        "page.dashboard.desc":               "Övergripande ekonomisk status för föreningen.",
+        "page.dashboard.desc":               "Översikt över medlemmar och ekonomi i församlingen.",
         "page.dashboard.total_income":       "Totala Intäkter",
         "page.dashboard.from_all_sources":   "Från alla källor",
         "page.dashboard.total_expenses":     "Totala Utgifter",
@@ -93,6 +93,25 @@ const translations = {
         "page.dashboard.membership":         "Medlemskap",
         "page.dashboard.registered_families":"Registrerade familjer",
         "page.dashboard.registered_members": "Registrerade medlemmar",
+        "page.dashboard.section_members":    "Medlemmar",
+        "page.dashboard.section_fees":       "Medlemsavgifter",
+        "page.dashboard.section_places":     "Orter",
+        "page.dashboard.adults":             "Vuxna",
+        "page.dashboard.adults_sub":         "18 år och äldre",
+        "page.dashboard.youth":              "Ungdomar",
+        "page.dashboard.youth_sub":          "13–17 år",
+        "page.dashboard.children":           "Barn",
+        "page.dashboard.children_sub":       "0–12 år",
+        "page.dashboard.men":                "Män",
+        "page.dashboard.women":              "Kvinnor",
+        "page.dashboard.gender_sub":         "Utifrån personnummer och föräldrar",
+        "page.dashboard.family_one":         "familj",
+        "page.dashboard.family_many":        "familjer",
+        "page.dashboard.paid":               "Betalt",
+        "page.dashboard.soon":               "Snart förfaller",
+        "page.dashboard.overdue":            "Förfallet / obetalt",
+        "page.dashboard.families_sub":       "Hushåll i registret",
+        "page.dashboard.members_sub":        "Alla i registret",
 
         // Payments
         "page.payments.title":    "Betalningar",
@@ -228,7 +247,7 @@ const translations = {
 
         // User management
         "page.users.title":     "Användarhantering",
-        "page.users.desc":      "Hantera användare och deras behörigheter.",
+        "page.users.desc":      "Hantera organisationens användare och vilka avdelningar de får redigera.",
         "page.users.add":       "Lägg till användare",
         "page.users.search":    "Sök på namn eller e-post...",
         "form.user.edit_title": "Redigera användare",
@@ -357,7 +376,7 @@ const translations = {
 
         // Dashboard
         "page.dashboard.title":               "Dashboard",
-        "page.dashboard.desc":                "Overall financial status of the association.",
+        "page.dashboard.desc":                "Overview of members and finances in the parish.",
         "page.dashboard.total_income":        "Total Income",
         "page.dashboard.from_all_sources":    "From all sources",
         "page.dashboard.total_expenses":      "Total Expenses",
@@ -367,6 +386,25 @@ const translations = {
         "page.dashboard.membership":          "Membership",
         "page.dashboard.registered_families": "Registered families",
         "page.dashboard.registered_members":  "Registered members",
+        "page.dashboard.section_members":    "Members",
+        "page.dashboard.section_fees":       "Membership fees",
+        "page.dashboard.section_places":     "Cities",
+        "page.dashboard.adults":             "Adults",
+        "page.dashboard.adults_sub":         "18 years and older",
+        "page.dashboard.youth":              "Youth",
+        "page.dashboard.youth_sub":          "Ages 13–17",
+        "page.dashboard.children":           "Children",
+        "page.dashboard.children_sub":       "Ages 0–12",
+        "page.dashboard.men":                "Men",
+        "page.dashboard.women":              "Women",
+        "page.dashboard.gender_sub":         "From personal numbers and parents",
+        "page.dashboard.family_one":         "family",
+        "page.dashboard.family_many":        "families",
+        "page.dashboard.paid":               "Paid",
+        "page.dashboard.soon":               "Due soon",
+        "page.dashboard.overdue":            "Overdue / unpaid",
+        "page.dashboard.families_sub":       "Households in the register",
+        "page.dashboard.members_sub":        "Everyone in the register",
 
         // Payments
         "page.payments.title":    "Payments",
@@ -502,7 +540,7 @@ const translations = {
 
         // User management
         "page.users.title":      "User Management",
-        "page.users.desc":       "Manage users and their permissions.",
+        "page.users.desc":       "Manage this organisation's users and which departments they may edit.",
         "page.users.add":        "Add user",
         "page.users.search":     "Search by name or email...",
         "form.user.edit_title":  "Edit user",

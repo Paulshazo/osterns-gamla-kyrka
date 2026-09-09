@@ -55,11 +55,50 @@ async function verifyAdminAccess() {
         .eq('id', user.id)
         .single()
 
-    if (profileError || !profile || (profile.role !== 'admin' && profile.role !== 'superadmin')) {
+    if (profileError || !profile) {
         throw new Error("Otillräckliga rättigheter")
     }
 
-    return { user, role: profile.role }
+    if (profile.role === 'superadmin' || profile.role === 'admin') {
+        return { user, role: profile.role as 'superadmin' | 'admin' }
+    }
+
+    const orgId = await getActiveOrgId()
+    if (orgId) {
+        const { data: membership } = await supabase
+            .from('organisation_members')
+            .select('role')
+            .eq('user_id', user.id)
+            .eq('organisation_id', orgId)
+            .eq('is_active', true)
+            .maybeSingle()
+
+        if (membership?.role === 'admin') {
+            return { user, role: 'admin' as const }
+        }
+    }
+
+    throw new Error("Otillräckliga rättigheter")
+}
+
+async function assertUserInActiveOrg(userId: string) {
+    const orgId = await getActiveOrgId()
+    if (!orgId) throw new Error("Ingen organisation vald")
+
+    let queryClient = await getAuthClient()
+    try {
+        queryClient = getServiceRoleClient()
+    } catch { /* fall back to the signed-in client */ }
+
+    const { data } = await queryClient
+        .from('organisation_members')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('organisation_id', orgId)
+        .maybeSingle()
+
+    if (!data) throw new Error("Användaren tillhör inte denna organisation")
+    return orgId
 }
 
 async function getActiveOrgId(): Promise<string | null> {
@@ -78,6 +117,11 @@ export async function createUserAction(formData: FormData) {
 
         if (role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan skapa andra superadmins.")
+        }
+
+        const activeOrgId = await getActiveOrgId()
+        if (!activeOrgId) {
+            throw new Error("Välj en organisation innan du skapar användare.")
         }
 
         const supabaseAdmin = getServiceRoleClient()
@@ -104,19 +148,15 @@ export async function createUserAction(formData: FormData) {
 
         if (updateError) throw updateError
 
-        // Add user to current organisation
-        const activeOrgId = await getActiveOrgId()
-        if (activeOrgId) {
-            await supabaseAdmin
-                .from('organisation_members')
-                .upsert({
-                    organisation_id: activeOrgId,
-                    user_id: authData.user.id,
-                    role: role,
-                    permissions: permissionsArray,
-                    is_active: true,
-                }, { onConflict: 'organisation_id,user_id' })
-        }
+        await supabaseAdmin
+            .from('organisation_members')
+            .upsert({
+                organisation_id: activeOrgId,
+                user_id: authData.user.id,
+                role: role === 'superadmin' ? 'admin' : role,
+                permissions: permissionsArray,
+                is_active: true,
+            }, { onConflict: 'organisation_id,user_id' })
 
         await logAuditAction('create', 'user', authData.user.id, { email, role, organisation_id: activeOrgId })
 
@@ -141,6 +181,10 @@ export async function updateUserRoleAndPermissions(userId: string, role: string,
 
         if (role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan tilldela superadmin-rollen.")
+        }
+
+        if (currentUserRole !== 'superadmin') {
+            await assertUserInActiveOrg(userId)
         }
 
         const { error } = await supabase
@@ -191,6 +235,10 @@ export async function deleteUserAction(userId: string) {
             throw new Error("Endast superadmins kan radera en annan superadmin.")
         }
 
+        if (currentUserRole !== 'superadmin') {
+            await assertUserInActiveOrg(userId)
+        }
+
         const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
 
         if (error) throw error
@@ -201,5 +249,48 @@ export async function deleteUserAction(userId: string) {
     } catch (error: any) {
         console.error("Error deleting user:", error)
         return { success: false, error: error.message }
+    }
+}
+
+export async function listOrganisationUsers() {
+    try {
+        await verifyAdminAccess()
+        const orgId = await getActiveOrgId()
+        if (!orgId) {
+            return { success: false as const, users: [], error: 'Ingen organisation vald' }
+        }
+
+        let queryClient = await getAuthClient()
+        try {
+            queryClient = getServiceRoleClient()
+        } catch { /* listing works with RLS after 06_department_edit_permissions.sql */ }
+
+        const { data, error } = await queryClient
+            .from('organisation_members')
+            .select('user_id, role, permissions, created_at, user_profiles(id, email, role, permissions, created_at)')
+            .eq('organisation_id', orgId)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false })
+
+        if (error) throw error
+
+        const users = (data ?? []).flatMap((row: any) => {
+            const profile = Array.isArray(row.user_profiles) ? row.user_profiles[0] : row.user_profiles
+            if (!profile) return []
+            const role = profile.role === 'superadmin'
+                ? 'superadmin'
+                : (row.role === 'admin' ? 'admin' : 'user')
+            return [{
+                id: profile.id as string,
+                email: profile.email as string,
+                role: role as 'superadmin' | 'admin' | 'user',
+                permissions: (row.permissions ?? profile.permissions ?? []) as string[],
+                created_at: profile.created_at as string,
+            }]
+        })
+
+        return { success: true as const, users }
+    } catch (error: any) {
+        return { success: false as const, users: [], error: error.message }
     }
 }

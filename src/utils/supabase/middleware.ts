@@ -55,7 +55,7 @@ export async function updateSession(request: NextRequest) {
                 .single()
 
             if (profile) {
-                const { role, permissions } = profile
+                const { role } = profile
 
                 // /super-admin — only superadmins
                 if (pathname.startsWith('/super-admin')) {
@@ -64,45 +64,34 @@ export async function updateSession(request: NextRequest) {
                         redirectUrl.pathname = '/'
                         return NextResponse.redirect(redirectUrl)
                     }
-                    // Superadmin on /super-admin — always allow, no org needed
                     return supabaseResponse
                 }
 
-                // Route permission map
-                const routePermissionMap: Record<string, string> = {
-                    '/register': 'register',
-                    '/betalningar': 'payments',
-                    '/utgifter': 'expenses',
-                    '/intakter': 'income',
-                    '/statistik': 'stats',
-                    '/installningar': 'settings',
-                    '/anvandare': 'users'
+                let isOrgAdmin = role === 'admin'
+                if (role === 'user' && activeOrgId) {
+                    const { data: membership } = await supabase
+                        .from('organisation_members')
+                        .select('role')
+                        .eq('user_id', user.id)
+                        .eq('organisation_id', activeOrgId)
+                        .eq('is_active', true)
+                        .maybeSingle()
+                    isOrgAdmin = membership?.role === 'admin'
                 }
 
-                // Regular users need explicit permissions
-                if (role !== 'superadmin' && role !== 'admin') {
-                    for (const [route, perm] of Object.entries(routePermissionMap)) {
-                        if (pathname.startsWith(route)) {
-                            if (!permissions || !Array.isArray(permissions) || !permissions.includes(perm)) {
-                                const redirectUrl = request.nextUrl.clone()
-                                redirectUrl.pathname = '/'
-                                return NextResponse.redirect(redirectUrl)
-                            }
-                        }
-                    }
-
-                    if ((pathname.startsWith('/installningar') || pathname.startsWith('/anvandare')) && role === 'user') {
+                const adminOnlyRoutes = ['/installningar', '/anvandare', '/loggar']
+                if (role !== 'superadmin' && !isOrgAdmin) {
+                    if (adminOnlyRoutes.some(route => pathname.startsWith(route))) {
                         const redirectUrl = request.nextUrl.clone()
                         redirectUrl.pathname = '/'
                         return NextResponse.redirect(redirectUrl)
                     }
+                }
 
-                    // Non-superadmin without active org → send to login for org selection
-                    if (!activeOrgId) {
-                        const redirectUrl = request.nextUrl.clone()
-                        redirectUrl.pathname = '/login'
-                        return NextResponse.redirect(redirectUrl)
-                    }
+                if (role !== 'superadmin' && !activeOrgId) {
+                    const redirectUrl = request.nextUrl.clone()
+                    redirectUrl.pathname = '/login'
+                    return NextResponse.redirect(redirectUrl)
                 }
             }
         }

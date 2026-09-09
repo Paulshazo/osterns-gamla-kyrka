@@ -11,6 +11,7 @@ import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { logAuditAction } from "@/app/actions/audit"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
+import { ReadOnlyBanner } from "@/components/read-only-banner"
 
 interface Family {
     id: string
@@ -37,7 +38,8 @@ export default function RegisterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canEdit } = useActiveOrg()
+    const canEditRegister = canEdit('register')
 
     const [families, setFamilies] = useState<Family[]>([])
     const [loading, setLoading] = useState(true)
@@ -197,16 +199,20 @@ export default function RegisterPage() {
                     >
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
-                    <button
-                        onClick={() => setShowForm(true)}
-                        className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground"
-                        style={{ background: '#1A1A1A' }}
-                    >
-                        <Plus size={15} />
-                        {t('page.register.add')}
-                    </button>
+                    {canEditRegister && (
+                        <button
+                            onClick={() => setShowForm(true)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground"
+                            style={{ background: '#1A1A1A' }}
+                        >
+                            <Plus size={15} />
+                            {t('page.register.add')}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {!canEditRegister && <ReadOnlyBanner />}
 
             {/* Search */}
             <div className="relative mb-5">
@@ -258,20 +264,24 @@ export default function RegisterPage() {
                                         <td>{f.ort ?? '—'}</td>
                                         <td>
                                             <div className="flex justify-end gap-1">
-                                                <button
-                                                    onClick={() => handleEdit(f.id)}
-                                                    className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
-                                                    aria-label={t('common.edit')}
-                                                >
-                                                    <Edit2 size={14} style={{ color: '#C9A84C' }} />
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteClick(f)}
-                                                    className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
-                                                    aria-label={t('common.delete')}
-                                                >
-                                                    <Trash2 size={14} style={{ color: '#C0392B' }} />
-                                                </button>
+                                                {canEditRegister && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleEdit(f.id)}
+                                                            className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                                                            aria-label={t('common.edit')}
+                                                        >
+                                                            <Edit2 size={14} style={{ color: '#C9A84C' }} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDeleteClick(f)}
+                                                            className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                                                            aria-label={t('common.delete')}
+                                                        >
+                                                            <Trash2 size={14} style={{ color: '#C0392B' }} />
+                                                        </button>
+                                                    </>
+                                                )}
                                                 <button
                                                     onClick={() => handleView(f.id)}
                                                     className="p-1.5 rounded-lg hover:bg-secondary transition-colors"

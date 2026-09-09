@@ -49,13 +49,12 @@ export default function LoggarPage() {
     }, [])
     const { t, language } = useLanguage()
     const locale = language === 'sv' ? sv : enUS
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canManageUsers, loading: orgLoading } = useActiveOrg()
 
     const [logs, setLogs] = useState<AuditLog[]>([])
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState("")
     const [filterAction, setFilterAction] = useState("all")
-    const [currentUserRole, setCurrentUserRole] = useState("user")
 
     const fetchLogs = async () => {
         if (!supabase || !activeOrgId) return
@@ -74,25 +73,19 @@ export default function LoggarPage() {
     }
 
     useEffect(() => {
-        if (!supabase) return
-        const init = async () => {
-            try {
-                const { data: { user } } = await supabase.auth.getUser()
-                if (user?.id) {
-                    const { data } = await supabase
-                        .from('user_profiles')
-                        .select('role')
-                        .eq('id', user.id)
-                        .single()
-                    if (data?.role) setCurrentUserRole(data.role)
-                }
-            } catch { /* ignore */ }
-        }
-        init()
         fetchLogs()
-    }, [supabase])
+    }, [supabase, activeOrgId])
 
-    if (currentUserRole === 'user') {
+    if (orgLoading) {
+        return (
+            <div className="flex items-center justify-center h-[50vh] text-muted-foreground gap-3">
+                <RefreshCw size={18} className="animate-spin" />
+                {t('common.loading')}
+            </div>
+        )
+    }
+
+    if (!canManageUsers) {
         return (
             <div className="flex items-center justify-center h-[50vh]">
                 <div className="text-center">

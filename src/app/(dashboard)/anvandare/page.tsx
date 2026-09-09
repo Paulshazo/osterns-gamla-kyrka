@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
-import { createClient } from "@/utils/supabase/client"
+import { useState, useEffect } from "react"
 import { useLanguage } from "@/components/language-provider"
 import { Plus, Search, Trash2, Edit, Loader2, ShieldCheck, User as UserIcon, X, Eye, EyeOff, Shield } from "lucide-react"
-import { createUserAction, updateUserRoleAndPermissions, deleteUserAction } from "@/app/actions/users"
+import { createUserAction, updateUserRoleAndPermissions, deleteUserAction, listOrganisationUsers } from "@/app/actions/users"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
+import { DEPARTMENTS } from "@/lib/permissions"
 
 type UserProfile = {
     id: string
@@ -14,13 +15,7 @@ type UserProfile = {
     created_at: string
 }
 
-const SECTION_OPTIONS = [
-    { id: "register",  label: "Familjeregister" },
-    { id: "payments",  label: "Betalningar" },
-    { id: "income",    label: "Intäkter" },
-    { id: "expenses",  label: "Utgifter" },
-    { id: "stats",     label: "Statistik" },
-]
+const SECTION_OPTIONS = DEPARTMENTS.map(d => ({ id: d.id, labelSv: d.labelSv, labelEn: d.labelEn }))
 
 const roleBadge = (role: string) => {
     if (role === 'superadmin') return { bg: '#EDE9FE', color: '#6D28D9', label: 'Superadmin' }
@@ -29,14 +24,12 @@ const roleBadge = (role: string) => {
 }
 
 export default function UsersPage() {
-    const supabase = useMemo(() => {
-        try { return createClient() } catch { return null }
-    }, [])
     const { t, language } = useLanguage()
+    const { canManageUsers, isSuperAdmin, activeOrgId, loading: orgLoading } = useActiveOrg()
     const [users, setUsers]                     = useState<UserProfile[]>([])
     const [loading, setLoading]                 = useState(true)
     const [searchQuery, setSearchQuery]         = useState("")
-    const [currentUserRole, setCurrentUserRole] = useState<string>("user")
+    const currentUserRole = isSuperAdmin ? 'superadmin' : canManageUsers ? 'admin' : 'user'
     // Detect missing service role key from error messages
     const [missingServiceKey, setMissingServiceKey] = useState(false)
 
@@ -62,21 +55,15 @@ export default function UsersPage() {
     const [editPermissions, setEditPermissions] = useState<string[]>([])
 
     const fetchUsers = async () => {
-        if (!supabase) return
         setLoading(true)
         try {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (user?.id) {
-                const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-                if (profile?.role) setCurrentUserRole(profile.role)
-            }
-            const { data } = await supabase.from('user_profiles').select('*').order('created_at', { ascending: false })
-            if (data) setUsers(data as UserProfile[])
+            const result = await listOrganisationUsers()
+            if (result.success) setUsers(result.users)
         } catch { /* ignore */ }
         setLoading(false)
     }
 
-    useEffect(() => { fetchUsers() }, [supabase])
+    useEffect(() => { fetchUsers() }, [activeOrgId])
 
     const handleCreateSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -143,7 +130,16 @@ export default function UsersPage() {
 
     const filtered = users.filter(u => u.email?.toLowerCase().includes(searchQuery.toLowerCase()))
 
-    if (currentUserRole === 'user') {
+    if (orgLoading) {
+        return (
+            <div className="flex items-center justify-center h-[50vh] text-muted-foreground">
+                <Loader2 size={20} className="animate-spin mr-2" />
+                {t('common.loading')}
+            </div>
+        )
+    }
+
+    if (!canManageUsers) {
         return (
             <div className="flex items-center justify-center h-[50vh]">
                 <div className="text-center">
@@ -220,7 +216,7 @@ export default function UsersPage() {
 
             <div className="bg-card border border-border rounded-[14px] overflow-hidden shadow-sm">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-5 py-4 border-b border-border" style={{ background: '#F7F3EC' }}>
-                    <span className="font-semibold text-sm">{language === 'sv' ? 'Alla användare' : 'All users'}</span>
+                    <span className="font-semibold text-sm">{language === 'sv' ? 'Användare i denna organisation' : 'Users in this organisation'}</span>
                     <div className="relative w-full sm:w-64">
                         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <input
@@ -285,7 +281,7 @@ export default function UsersPage() {
                                                             </span>
                                                         )) : (
                                                             <span className="text-xs text-muted-foreground italic">
-                                                                {language === 'sv' ? 'Inga sidor valda' : 'No pages selected'}
+                                                                {language === 'sv' ? 'Ingen redigering' : 'View only'}
                                                             </span>
                                                         )}
                                                     </div>
@@ -357,13 +353,18 @@ export default function UsersPage() {
                                 </div>
                                 {newRole === 'user' && (
                                     <div className="space-y-2">
-                                        <label className="text-sm font-semibold">{language === 'sv' ? 'Behörigheter' : 'Permissions'}</label>
+                                        <label className="text-sm font-semibold">{language === 'sv' ? 'Kan redigera' : 'Can edit'}</label>
+                                        <p className="text-xs text-muted-foreground">
+                                            {language === 'sv'
+                                                ? 'Användaren kan se alla avdelningar men bara redigera de som är ikryssade. Inställningar, användare och aktivitetsloggar är bara för administratörer.'
+                                                : 'The user can view every department but only edit the ones you tick. Settings, users and activity logs are for administrators only.'}
+                                        </p>
                                         <div className="border border-border rounded-[10px] p-3 space-y-2 bg-secondary/30">
                                             {SECTION_OPTIONS.map(s => (
                                                 <label key={s.id} className="flex items-center gap-2.5 cursor-pointer">
                                                     <input type="checkbox" className="rounded" checked={newPermissions.includes(s.id)}
                                                         onChange={() => togglePerm(s.id, newPermissions, setNewPermissions)} />
-                                                    <span className="text-sm">{s.label}</span>
+                                                    <span className="text-sm">{language === 'sv' ? s.labelSv : s.labelEn}</span>
                                                 </label>
                                             ))}
                                         </div>
@@ -413,13 +414,18 @@ export default function UsersPage() {
                                 </div>
                                 {editRole === 'user' && (
                                     <div className="space-y-2">
-                                        <label className="text-sm font-semibold">{language === 'sv' ? 'Behörigheter' : 'Permissions'}</label>
+                                        <label className="text-sm font-semibold">{language === 'sv' ? 'Kan redigera' : 'Can edit'}</label>
+                                        <p className="text-xs text-muted-foreground">
+                                            {language === 'sv'
+                                                ? 'Användaren kan se alla avdelningar men bara redigera de som är ikryssade.'
+                                                : 'The user can view every department but only edit the ones you tick.'}
+                                        </p>
                                         <div className="border border-border rounded-[10px] p-3 space-y-2 bg-secondary/30">
                                             {SECTION_OPTIONS.map(s => (
                                                 <label key={s.id} className="flex items-center gap-2.5 cursor-pointer">
                                                     <input type="checkbox" className="rounded" checked={editPermissions.includes(s.id)}
                                                         onChange={() => togglePerm(s.id, editPermissions, setEditPermissions)} />
-                                                    <span className="text-sm">{s.label}</span>
+                                                    <span className="text-sm">{language === 'sv' ? s.labelSv : s.labelEn}</span>
                                                 </label>
                                             ))}
                                         </div>

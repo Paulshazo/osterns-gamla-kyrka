@@ -47,12 +47,13 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const pathname = usePathname()
     const router = useRouter()
     const { language, setLanguage, t } = useLanguage()
-    const { activeOrgId, activeOrgName, activeOrgLogo, activeOrgColor } = useActiveOrg()
+    const {
+        activeOrgId, activeOrgName, activeOrgLogo, activeOrgColor,
+        isSuperAdmin, isOrgAdmin, canManageUsers, canSwitchOrg,
+    } = useActiveOrg()
     const [adminTitle, setAdminTitle]   = useState("Kyrkoregistret")
     const [adminLogoUrl, setAdminLogoUrl] = useState<string | null>(null)
     const [adminLogoSize, setAdminLogoSize] = useState(32)
-    const [userRole, setUserRole]             = useState("user")
-    const [userPermissions, setUserPermissions] = useState<string[]>([])
     const [userEmail, setUserEmail] = useState("")
 
     useEffect(() => {
@@ -72,26 +73,15 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             } catch { /* ignore */ }
         }
 
-        const fetchUserProfile = async () => {
+        const fetchUserEmail = async () => {
             try {
                 const { data: { user } } = await supabase.auth.getUser()
-                if (user?.id) {
-                    setUserEmail(user.email ?? "")
-                    const { data } = await supabase
-                        .from('user_profiles')
-                        .select('role, permissions')
-                        .eq('id', user.id)
-                        .single()
-                    if (data) {
-                        setUserRole(data.role ?? "user")
-                        setUserPermissions(data.permissions ?? [])
-                    }
-                }
+                if (user?.email) setUserEmail(user.email)
             } catch { /* ignore */ }
         }
 
         fetchSettings()
-        fetchUserProfile()
+        fetchUserEmail()
     }, [supabase, activeOrgId])
 
     const handleLogout = async () => {
@@ -111,11 +101,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     }
 
     const isAllowed = (item: typeof navItems[0]) => {
-        if (!item.permission) return true
-        if (userRole === 'superadmin' || userRole === 'admin') return true
-        if (item.permission === 'settings' || item.permission === 'users') return false
-        return userPermissions.includes(item.permission)
+        if (item.permission === 'settings' || item.permission === 'users') return canManageUsers
+        return true
     }
+
+    const roleLabel = isSuperAdmin ? 'SUPERADMIN' : isOrgAdmin ? 'ADMIN' : 'ANVÄNDARE'
 
     return (
         <div className="flex h-full flex-col" style={{ background: '#1C1C1C' }}>
@@ -166,13 +156,15 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         <span className="text-xs font-medium truncate flex-1" style={{ color: '#F0EBE0' }}>
                             {activeOrgName}
                         </span>
-                        <button
-                            onClick={handleSwitchOrg}
-                            className="p-1 rounded-md hover:bg-white/10 transition-colors flex-shrink-0"
-                            title={language === 'sv' ? 'Byt organisation' : 'Switch organisation'}
-                        >
-                            <ArrowLeftRight size={12} style={{ color: '#C9A84C' }} />
-                        </button>
+                        {canSwitchOrg && (
+                            <button
+                                onClick={handleSwitchOrg}
+                                className="p-1 rounded-md hover:bg-white/10 transition-colors flex-shrink-0"
+                                title={language === 'sv' ? 'Byt organisation' : 'Switch organisation'}
+                            >
+                                <ArrowLeftRight size={12} style={{ color: '#C9A84C' }} />
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
@@ -203,7 +195,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 })}
 
                 {/* Super Admin link for superadmins */}
-                {userRole === 'superadmin' && (
+                {isSuperAdmin && (
                     <Link
                         href="/super-admin"
                         onClick={onClose}
@@ -224,7 +216,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 {userEmail && (
                     <div className="px-3 py-2 rounded-[10px] mb-2" style={{ background: '#2A2A2A' }}>
                         <div className="text-xs font-medium truncate" style={{ color: '#C9A84C' }}>
-                            {userRole.toUpperCase()}
+                            {roleLabel}
                         </div>
                         <div className="text-xs truncate mt-0.5" style={{ color: '#8A8178' }}>
                             {userEmail}

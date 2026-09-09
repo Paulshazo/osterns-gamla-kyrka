@@ -130,9 +130,8 @@ export default function LoginPage() {
             }
 
             if (orgs.length === 1 && !userIsSuperAdmin) {
-                // Single org — auto-select
                 await setActiveOrganisation(orgs[0].id)
-                window.location.href = "/register"
+                window.location.href = "/"
                 return
             }
 

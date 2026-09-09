@@ -14,6 +14,7 @@ import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { sendPaymentReminderAction } from "@/app/actions/email"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
+import { ReadOnlyBanner } from "@/components/read-only-banner"
 
 export default function BetalningarPage() {
     const supabase = useMemo(() => {
@@ -21,7 +22,8 @@ export default function BetalningarPage() {
     }, [])
     const { t, language } = useLanguage()
     const locale = language === 'sv' ? sv : enUS
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canEdit } = useActiveOrg()
+    const canEditPayments = canEdit('payments')
 
     const [payments, setPayments] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
@@ -206,15 +208,19 @@ export default function BetalningarPage() {
                         className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors">
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
-                    <button
-                        onClick={() => { setSelectedPayment(null); setShowForm(true) }}
-                        className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground"
-                        style={{ background: '#1A1A1A' }}>
-                        <Plus size={15} />
-                        {t('page.payments.register')}
-                    </button>
+                    {canEditPayments && (
+                        <button
+                            onClick={() => { setSelectedPayment(null); setShowForm(true) }}
+                            className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground"
+                            style={{ background: '#1A1A1A' }}>
+                            <Plus size={15} />
+                            {t('page.payments.register')}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {!canEditPayments && <ReadOnlyBanner />}
 
             {/* Stats */}
             <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-5">
@@ -300,8 +306,7 @@ export default function BetalningarPage() {
                                                         </span>
                                                     )}
                                                     <div className="flex items-center gap-1.5">
-                                                        {/* Reminder button — only visible when overdue */}
-                                                        {isOverdue && (
+                                                        {canEditPayments && isOverdue && (
                                                             <button
                                                                 onClick={() => handleSendReminder(p)}
                                                                 disabled={sendingReminder === p.id}
@@ -321,23 +326,24 @@ export default function BetalningarPage() {
                                                                 {language === 'sv' ? 'Påminnelse' : 'Reminder'}
                                                             </button>
                                                         )}
-                                                        {/* Manage button */}
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedPayment({
-                                                                    familj_id: p.id,
-                                                                    total_manads_avgift: p.monthly_fee,
-                                                                    total_ars_avgift: p.annual_fee,
-                                                                    summan: p.monthly_fee,
-                                                                })
-                                                                setShowForm(true)
-                                                            }}
-                                                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary-foreground"
-                                                            style={{ background: '#1A1A1A' }}
-                                                        >
-                                                            <CreditCard size={12} />
-                                                            {t('action.manage')}
-                                                        </button>
+                                                        {canEditPayments && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedPayment({
+                                                                        familj_id: p.id,
+                                                                        total_manads_avgift: p.monthly_fee,
+                                                                        total_ars_avgift: p.annual_fee,
+                                                                        summan: p.monthly_fee,
+                                                                    })
+                                                                    setShowForm(true)
+                                                                }}
+                                                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary-foreground"
+                                                                style={{ background: '#1A1A1A' }}
+                                                            >
+                                                                <CreditCard size={12} />
+                                                                {t('action.manage')}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </td>

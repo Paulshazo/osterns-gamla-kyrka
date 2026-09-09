@@ -6,6 +6,7 @@ import { TrendingDown, Plus, RefreshCcw, FileSpreadsheet, FileText, X } from "lu
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
+import { ReadOnlyBanner } from "@/components/read-only-banner"
 
 const months = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
 
@@ -14,7 +15,8 @@ export default function UtgifterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canEdit } = useActiveOrg()
+    const canEditExpenses = canEdit('expenses')
     const [items, setItems] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedMonth, setSelectedMonth] = useState("Alla")
@@ -81,11 +83,15 @@ export default function UtgifterPage() {
                     <button onClick={fetchItems} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors">
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
-                    <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground" style={{ background: '#1A1A1A' }}>
-                        <Plus size={15} /> {t('page.expenses.new')}
-                    </button>
+                    {canEditExpenses && (
+                        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground" style={{ background: '#1A1A1A' }}>
+                            <Plus size={15} /> {t('page.expenses.new')}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {!canEditExpenses && <ReadOnlyBanner />}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
@@ -202,6 +208,7 @@ function ExpenseForm({ supabase, t, language, activeOrgId, onClose, onSuccess }:
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!supabase) return
+        if (!activeOrgId) return
         setLoading(true)
         const total = (Number(data.hyra) || 0) + (Number(data.frukost) || 0) + (Number(data.rakning) || 0) + (Number(data.annat) || 0)
         const { error } = await supabase.from('utgifter').insert([{ ...data, total, organisation_id: activeOrgId }])

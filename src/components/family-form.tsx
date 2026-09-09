@@ -20,7 +20,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canEdit } = useActiveOrg()
     const [loading, setLoading]                 = useState(false)
     const [error, setError]                     = useState<string | null>(null)
     const [validationErrors, setValidationErrors] = useState<string[]>([])
@@ -65,6 +65,10 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
 
     const doSave = async () => {
         if (!supabase) return
+        if (!canEdit('register')) {
+            setError(language === 'sv' ? 'Du har inte behörighet att redigera registret.' : 'You are not allowed to edit the register.')
+            return
+        }
         setLoading(true)
         setPendingSubmit(false)
         setConfirmMsg(null)

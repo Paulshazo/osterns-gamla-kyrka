@@ -20,7 +20,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canEdit } = useActiveOrg()
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [families, setFamilies] = useState<any[]>([])
@@ -96,6 +96,10 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (!canEdit('payments')) {
+            setError(language === 'sv' ? 'Du har inte behörighet att redigera betalningar.' : 'You are not allowed to edit payments.')
+            return
+        }
         if (!supabase || !formData.familj_id) {
             setError(t('form.payment.error_select_family'))
             return
