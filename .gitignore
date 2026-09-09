@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local data copy from old Supabase (PII — never commit)
+.local-migrate/
+
 # vercel
 .vercel
 
