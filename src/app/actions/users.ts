@@ -321,7 +321,7 @@ export async function deleteUserAction(userId: string) {
 
 export async function listOrganisationUsers() {
     try {
-        const { user, role: currentRole } = await verifyAdminAccess()
+        const { user } = await verifyAdminAccess()
         const orgId = await getActiveOrgId()
         if (!orgId) {
             return { success: false as const, users: [], error: 'Ingen organisation vald' }
@@ -332,7 +332,7 @@ export async function listOrganisationUsers() {
         await supabase.from('organisation_members').upsert({
             organisation_id: orgId,
             user_id: user.id,
-            role: currentRole === 'user' ? 'user' : 'admin',
+            role: 'admin',
             is_active: true,
         }, { onConflict: 'organisation_id,user_id', ignoreDuplicates: true })
 
