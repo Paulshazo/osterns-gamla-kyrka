@@ -1,21 +1,14 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { supabaseAnonKey, supabaseUrl } from './config'
 
 export async function updateSession(request: NextRequest) {
     let supabaseResponse = NextResponse.next({
         request,
     })
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    // If env vars are missing, we can't check session, but we shouldn't crash the whole site
-    if (!url || !key) {
-        return supabaseResponse
-    }
-
     try {
-        const supabase = createServerClient(url, key, {
+        const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
             cookies: {
                 getAll() {
                     return request.cookies.getAll()

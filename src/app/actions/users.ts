@@ -4,19 +4,12 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { logAuditAction } from './audit'
+import { supabaseAnonKey, supabaseUrl } from '@/utils/supabase/config'
 
 // We need a Service Role client to bypass RLS and create/delete users
 // without logging out the current admin user.
 function getServiceRoleClient() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl) {
-        throw new Error(
-            'NEXT_PUBLIC_SUPABASE_URL saknas i miljövariabler. ' +
-            'Lägg till den i .env.local — se .env.local.example för instruktioner.'
-        )
-    }
 
     if (!supabaseServiceKey) {
         throw new Error(
@@ -37,10 +30,7 @@ function getServiceRoleClient() {
 // Helper to get the authenticated user client based on cookies
 async function getAuthClient() {
     const cookieStore = await cookies()
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-    return createServerClient(url, key, {
+    return createServerClient(supabaseUrl, supabaseAnonKey, {
         cookies: {
             getAll() { return cookieStore.getAll() },
             setAll(cookiesToSet) {
