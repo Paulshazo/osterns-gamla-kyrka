@@ -38,7 +38,7 @@ export default function RegisterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId, canEdit } = useActiveOrg()
+    const { activeOrgId, canEdit, canExport } = useActiveOrg()
     const canEditRegister = canEdit('register')
 
     const [families, setFamilies] = useState<Family[]>([])
@@ -116,6 +116,7 @@ export default function RegisterPage() {
     )
 
     const handleExcelExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [
@@ -142,6 +143,7 @@ export default function RegisterPage() {
     }
 
     const handlePDFExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [
@@ -173,24 +175,28 @@ export default function RegisterPage() {
                     <p className="text-muted-foreground text-sm mt-1">{t('page.register.desc')}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <button
-                        onClick={handleExcelExport}
-                        disabled={exporting || loading}
-                        className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50"
-                        title={t('common.export_excel')}
-                    >
-                        <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} />
-                        Excel
-                    </button>
-                    <button
-                        onClick={handlePDFExport}
-                        disabled={exporting || loading}
-                        className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50"
-                        title={t('common.export_pdf')}
-                    >
-                        <FileText size={15} style={{ color: '#C0392B' }} />
-                        PDF
-                    </button>
+                    {canExport && (
+                        <>
+                            <button
+                                onClick={handleExcelExport}
+                                disabled={exporting || loading}
+                                className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50"
+                                title={t('common.export_excel')}
+                            >
+                                <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} />
+                                Excel
+                            </button>
+                            <button
+                                onClick={handlePDFExport}
+                                disabled={exporting || loading}
+                                className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50"
+                                title={t('common.export_pdf')}
+                            >
+                                <FileText size={15} style={{ color: '#C0392B' }} />
+                                PDF
+                            </button>
+                        </>
+                    )}
                     <button
                         onClick={fetchFamilies}
                         disabled={loading}

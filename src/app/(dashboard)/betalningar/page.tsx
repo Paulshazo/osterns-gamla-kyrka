@@ -22,7 +22,7 @@ export default function BetalningarPage() {
     }, [])
     const { t, language } = useLanguage()
     const locale = language === 'sv' ? sv : enUS
-    const { activeOrgId, canEdit } = useActiveOrg()
+    const { activeOrgId, canEdit, canExport } = useActiveOrg()
     const canEditPayments = canEdit('payments')
 
     const [payments, setPayments] = useState<any[]>([])
@@ -139,6 +139,7 @@ export default function BetalningarPage() {
     }
 
     const handleExcelExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [
@@ -166,6 +167,7 @@ export default function BetalningarPage() {
     }
 
     const handlePDFExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [
@@ -196,14 +198,18 @@ export default function BetalningarPage() {
                     <p className="text-muted-foreground text-sm mt-1">{t('page.payments.desc')}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={handleExcelExport} disabled={exporting || loading}
-                        className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
-                        <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} /> Excel
-                    </button>
-                    <button onClick={handlePDFExport} disabled={exporting || loading}
-                        className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
-                        <FileText size={15} style={{ color: '#C0392B' }} /> PDF
-                    </button>
+                    {canExport && (
+                        <>
+                            <button onClick={handleExcelExport} disabled={exporting || loading}
+                                className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
+                                <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} /> Excel
+                            </button>
+                            <button onClick={handlePDFExport} disabled={exporting || loading}
+                                className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
+                                <FileText size={15} style={{ color: '#C0392B' }} /> PDF
+                            </button>
+                        </>
+                    )}
                     <button onClick={fetchPayments} disabled={loading}
                         className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors">
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />

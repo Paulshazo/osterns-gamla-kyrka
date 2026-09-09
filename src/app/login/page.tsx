@@ -29,8 +29,7 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [loginTitle, setLoginTitle] = useState("Välkommen")
-    const [loginSubtitle, setLoginSubtitle] = useState("Logga in på kyrkoregistret")
+    const loginTitle = "Österns Gamla Kyrkans Register"
     const [loginLogoUrl, setLoginLogoUrl] = useState<string | null>(null)
     const [loginLogoSize, setLoginLogoSize] = useState(64)
     const [organisations, setOrganisations] = useState<OrgOption[]>([])
@@ -42,12 +41,10 @@ export default function LoginPage() {
             try {
                 const { data } = await supabase
                     .from('app_settings')
-                    .select('login_title, login_subtitle, login_logo_url, login_logo_size')
+                    .select('login_logo_url, login_logo_size')
                     .limit(1)
                     .single()
                 if (data) {
-                    if (data.login_title) setLoginTitle(data.login_title)
-                    if (data.login_subtitle) setLoginSubtitle(data.login_subtitle)
                     if (data.login_logo_url) setLoginLogoUrl(data.login_logo_url)
                     if (data.login_logo_size) setLoginLogoSize(data.login_logo_size)
                 }
@@ -186,9 +183,6 @@ export default function LoginPage() {
                                     <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1A1A1A' }}>
                                         {loginTitle}
                                     </h1>
-                                    <p className="text-sm mt-1" style={{ color: '#6B6355' }}>
-                                        {loginSubtitle}
-                                    </p>
                                 </div>
 
                                 <form onSubmit={handleLogin} className="space-y-5">

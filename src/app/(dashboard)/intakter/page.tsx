@@ -15,7 +15,7 @@ export default function IntakterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId, canEdit } = useActiveOrg()
+    const { activeOrgId, canEdit, canExport } = useActiveOrg()
     const canEditIncome = canEdit('income')
     const [items, setItems] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
@@ -49,6 +49,7 @@ export default function IntakterPage() {
     const grandTotal = items.reduce((s, i) => s + (i.total ?? 0), 0)
 
     const handleExcelExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [language === 'sv' ? 'Datum' : 'Date', language === 'sv' ? 'Månad' : 'Month', 'Vecka', language === 'sv' ? 'Medlemsavgifter' : 'Membership Fees', language === 'sv' ? 'Gåvor' : 'Gifts', language === 'sv' ? 'Ungdom' : 'Youth', language === 'sv' ? 'Annat' : 'Other', 'Total kr']
@@ -58,6 +59,7 @@ export default function IntakterPage() {
     }
 
     const handlePDFExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [language === 'sv' ? 'Datum' : 'Date', language === 'sv' ? 'Månad' : 'Month', 'Vecka', 'Total kr']
@@ -74,12 +76,16 @@ export default function IntakterPage() {
                     <p className="text-muted-foreground text-sm mt-1">{t('page.income.desc')}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={handleExcelExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
-                        <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} /> Excel
-                    </button>
-                    <button onClick={handlePDFExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
-                        <FileText size={15} style={{ color: '#C0392B' }} /> PDF
-                    </button>
+                    {canExport && (
+                        <>
+                            <button onClick={handleExcelExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
+                                <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} /> Excel
+                            </button>
+                            <button onClick={handlePDFExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
+                                <FileText size={15} style={{ color: '#C0392B' }} /> PDF
+                            </button>
+                        </>
+                    )}
                     <button onClick={fetchItems} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors">
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>

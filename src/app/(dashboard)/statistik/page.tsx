@@ -14,7 +14,7 @@ export default function StatistikPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId } = useActiveOrg()
+    const { activeOrgId, canExport } = useActiveOrg()
     const [chartData, setChartData] = useState<{ month: string; income: number; expense: number }[]>([])
     const [loading, setLoading] = useState(true)
     const [exporting, setExporting] = useState(false)
@@ -44,6 +44,7 @@ export default function StatistikPage() {
     const netBalance   = totalIncome - totalExpense
 
     const handleExcelExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [language === 'sv' ? 'Månad' : 'Month', language === 'sv' ? 'Intäkter' : 'Income', language === 'sv' ? 'Utgifter' : 'Expenses', language === 'sv' ? 'Resultat' : 'Result']
@@ -53,6 +54,7 @@ export default function StatistikPage() {
     }
 
     const handlePDFExport = async () => {
+        if (!canExport) return
         setExporting(true)
         try {
             const headers = [language === 'sv' ? 'Månad' : 'Month', language === 'sv' ? 'Intäkter' : 'Income', language === 'sv' ? 'Utgifter' : 'Expenses', language === 'sv' ? 'Resultat' : 'Result']
@@ -68,14 +70,16 @@ export default function StatistikPage() {
                     <h1 className="text-2xl font-bold tracking-tight">{t('page.stats.title')}</h1>
                     <p className="text-muted-foreground text-sm mt-1">{t('page.stats.desc')}</p>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={handleExcelExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
-                        <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} /> Excel
-                    </button>
-                    <button onClick={handlePDFExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
-                        <FileText size={15} style={{ color: '#C0392B' }} /> PDF
-                    </button>
-                </div>
+                {canExport && (
+                    <div className="flex gap-2">
+                        <button onClick={handleExcelExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
+                            <FileSpreadsheet size={15} style={{ color: '#2C7A4B' }} /> Excel
+                        </button>
+                        <button onClick={handlePDFExport} disabled={exporting || loading} className="flex items-center gap-2 px-3 py-2 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors disabled:opacity-50">
+                            <FileText size={15} style={{ color: '#C0392B' }} /> PDF
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Summary cards */}

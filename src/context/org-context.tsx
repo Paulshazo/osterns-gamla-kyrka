@@ -16,6 +16,7 @@ interface OrgContextValue {
     isOrgAdmin: boolean
     canManageUsers: boolean
     canSwitchOrg: boolean
+    canExport: boolean
     canEdit: (section: Department) => boolean
     loading: boolean
     refreshOrg: () => Promise<void>
@@ -33,6 +34,7 @@ const defaultContext: OrgContextValue = {
     isOrgAdmin: false,
     canManageUsers: false,
     canSwitchOrg: false,
+    canExport: false,
     canEdit: () => false,
     loading: true,
     refreshOrg: async () => {},
@@ -144,6 +146,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     const isSuperAdmin = profileRole === 'superadmin'
     const isOrgAdmin = isSuperAdmin || orgRole === 'admin' || profileRole === 'admin'
     const canManageUsers = isOrgAdmin
+    const canExport = isOrgAdmin
     const canSwitchOrg = isSuperAdmin || membershipCount > 1
 
     const canEdit = useCallback((section: Department) => {
@@ -165,6 +168,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
             isOrgAdmin,
             canManageUsers,
             canSwitchOrg,
+            canExport,
             canEdit,
             loading,
             refreshOrg: fetchOrg,
