@@ -58,7 +58,12 @@ export default function UsersPage() {
         setLoading(true)
         try {
             const result = await listOrganisationUsers()
-            if (result.success) setUsers(result.users)
+            if (result.success) {
+                setUsers(result.users)
+            } else {
+                setUsers([])
+                if (result.error) setErrorMsg(result.error)
+            }
         } catch { /* ignore */ }
         setLoading(false)
     }
@@ -161,13 +166,13 @@ export default function UsersPage() {
                     </p>
                     <p className="mb-3">
                         {language === 'sv'
-                            ? 'Denna nyckel krävs för att skapa och radera användare. Följ stegen:'
-                            : 'This key is required to create and delete users. Follow these steps:'}
+                            ? 'Nyckeln behövs för att skapa inloggningar. På den publika sidan lägger du den i Vercel, inte bara i .env.local:'
+                            : 'This key is needed to create logins. On the live site, add it in Vercel, not only in .env.local:'}
                     </p>
                     <ol className="list-decimal list-inside space-y-1.5 text-xs" style={{ color: '#7F1D1D' }}>
                         <li>
                             {language === 'sv' ? 'Gå till ' : 'Go to '}
-                            <strong>Supabase Dashboard → Settings → API</strong>
+                            <strong>Supabase → Project Settings → API</strong>
                         </li>
                         <li>
                             {language === 'sv' ? 'Kopiera ' : 'Copy '}
@@ -175,26 +180,19 @@ export default function UsersPage() {
                             {language === 'sv' ? '-nyckeln (secret)' : ' key (secret)'}
                         </li>
                         <li>
-                            {language === 'sv' ? 'Skapa/öppna filen ' : 'Create/open the file '}
-                            <code className="font-mono bg-red-100 px-1 rounded">.env.local</code>
-                            {language === 'sv' ? ' i projektets rotmapp' : ' in your project root'}
+                            {language === 'sv' ? 'I Vercel: ' : 'In Vercel: '}
+                            <strong>Project → Settings → Environment Variables</strong>
                         </li>
                         <li>
-                            {language === 'sv' ? 'Lägg till raden:' : 'Add the line:'}
+                            {language === 'sv' ? 'Lägg till:' : 'Add:'}
                             <code className="block font-mono bg-red-100 px-2 py-1 rounded mt-1 text-xs">
-                                SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...din-nyckel
+                                SUPABASE_SERVICE_ROLE_KEY
                             </code>
                         </li>
                         <li>
-                            {language === 'sv' ? 'Starta om dev-servern med ' : 'Restart the dev server with '}
-                            <code className="font-mono bg-red-100 px-1 rounded">npm run dev</code>
+                            {language === 'sv' ? 'Spara för Production och gör en ny deploy.' : 'Save for Production and redeploy.'}
                         </li>
                     </ol>
-                    <p className="mt-3 text-xs" style={{ color: '#7F1D1D' }}>
-                        {language === 'sv'
-                            ? 'Se filen .env.local.example i projektroten för en komplett mall.'
-                            : 'See .env.local.example in the project root for a complete template.'}
-                    </p>
                 </div>
             )}
 

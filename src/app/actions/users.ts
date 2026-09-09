@@ -13,7 +13,7 @@ function getServiceRoleClient() {
         throw new Error(
             'SUPABASE_SERVICE_ROLE_KEY saknas i miljövariabler. ' +
             'Hämta den från: Supabase Dashboard → Settings → API → service_role (secret). ' +
-            'Lägg sedan till den i din .env.local-fil: SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...'
+            'På Vercel: Project → Settings → Environment Variables. Lokalt: .env.local.'
         )
     }
 
@@ -23,6 +23,14 @@ function getServiceRoleClient() {
             persistSession: false
         }
     })
+}
+
+function tryServiceRoleClient() {
+    try {
+        return getServiceRoleClient()
+    } catch {
+        return null
+    }
 }
 
 async function getAuthClient() {
@@ -124,41 +132,84 @@ export async function createUserAction(formData: FormData) {
             throw new Error("Välj en organisation innan du skapar användare.")
         }
 
-        const supabaseAdmin = getServiceRoleClient()
-
-        const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
-            email: email,
-            password: password,
-            email_confirm: true
-        })
-
-        if (createError) throw createError
-        if (!authData.user) throw new Error("Kunde inte skapa användare.")
-
         const permissionsArray = rawPermissions.map(p => p.toString())
+        const memberRole = role === 'superadmin' ? 'admin' : role
+        const supabaseAdmin = tryServiceRoleClient()
+        let newUserId: string
 
-        const { error: updateError } = await supabaseAdmin
-            .from('user_profiles')
-            .update({
-                role: role,
-                permissions: permissionsArray,
-                updated_at: new Date().toISOString()
+        if (supabaseAdmin) {
+            const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+                email: email,
+                password: password,
+                email_confirm: true
             })
-            .eq('id', authData.user.id)
 
-        if (updateError) throw updateError
+            if (createError) throw createError
+            if (!authData.user) throw new Error("Kunde inte skapa användare.")
+            newUserId = authData.user.id
 
-        await supabaseAdmin
-            .from('organisation_members')
-            .upsert({
-                organisation_id: activeOrgId,
-                user_id: authData.user.id,
-                role: role === 'superadmin' ? 'admin' : role,
-                permissions: permissionsArray,
-                is_active: true,
-            }, { onConflict: 'organisation_id,user_id' })
+            const { error: updateError } = await supabaseAdmin
+                .from('user_profiles')
+                .update({
+                    role: role,
+                    permissions: permissionsArray,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', newUserId)
 
-        await logAuditAction('create', 'user', authData.user.id, { email, role, organisation_id: activeOrgId })
+            if (updateError) throw updateError
+
+            await supabaseAdmin
+                .from('organisation_members')
+                .upsert({
+                    organisation_id: activeOrgId,
+                    user_id: newUserId,
+                    role: memberRole,
+                    permissions: permissionsArray,
+                    is_active: true,
+                }, { onConflict: 'organisation_id,user_id' })
+        } else {
+            const detached = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
+                auth: { autoRefreshToken: false, persistSession: false }
+            })
+            const { data: signUpData, error: signUpError } = await detached.auth.signUp({
+                email,
+                password,
+            })
+            if (signUpError) throw signUpError
+            if (!signUpData.user) throw new Error("Kunde inte skapa användare.")
+            newUserId = signUpData.user.id
+
+            const supabase = await getAuthClient()
+            const { error: memberError } = await supabase
+                .from('organisation_members')
+                .upsert({
+                    organisation_id: activeOrgId,
+                    user_id: newUserId,
+                    role: memberRole,
+                    permissions: permissionsArray,
+                    is_active: true,
+                }, { onConflict: 'organisation_id,user_id' })
+            if (memberError) throw memberError
+
+            let profileError: { message: string } | null = null
+            for (let i = 0; i < 5; i++) {
+                const { error } = await supabase
+                    .from('user_profiles')
+                    .update({
+                        role: role,
+                        permissions: permissionsArray,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', newUserId)
+                profileError = error
+                if (!error) break
+                await new Promise(resolve => setTimeout(resolve, 250))
+            }
+            if (profileError) throw profileError
+        }
+
+        await logAuditAction('create', 'user', newUserId, { email, role, organisation_id: activeOrgId })
 
         return { success: true, message: 'Användare skapad framgångsrikt!' }
     } catch (error: any) {
@@ -198,18 +249,18 @@ export async function updateUserRoleAndPermissions(userId: string, role: string,
 
         if (error) throw error
 
-        // Also update organisation_members role/permissions
         const activeOrgId = await getActiveOrgId()
         if (activeOrgId) {
-            const supabaseAdmin = getServiceRoleClient()
-            await supabaseAdmin
+            const memberClient = tryServiceRoleClient() ?? supabase
+            const { error: memberError } = await memberClient
                 .from('organisation_members')
                 .update({
-                    role: role,
+                    role: role === 'superadmin' ? 'admin' : role,
                     permissions: permissions,
                 })
                 .eq('user_id', userId)
                 .eq('organisation_id', activeOrgId)
+            if (memberError) throw memberError
         }
 
         return { success: true }
@@ -227,21 +278,37 @@ export async function deleteUserAction(userId: string) {
             throw new Error("Du kan inte radera ditt eget konto.")
         }
 
-        const supabaseAdmin = getServiceRoleClient()
+        if (currentUserRole !== 'superadmin') {
+            await assertUserInActiveOrg(userId)
+        }
 
-        const { data: targetUser } = await supabaseAdmin.from('user_profiles').select('role').eq('id', userId).single()
+        const supabaseAdmin = tryServiceRoleClient()
+        const orgId = await getActiveOrgId()
+        const authClient = await getAuthClient()
+
+        const { data: targetUser } = await (supabaseAdmin ?? authClient)
+            .from('user_profiles')
+            .select('role')
+            .eq('id', userId)
+            .single()
 
         if (targetUser?.role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan radera en annan superadmin.")
         }
 
-        if (currentUserRole !== 'superadmin') {
-            await assertUserInActiveOrg(userId)
+        if (supabaseAdmin) {
+            const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
+            if (error) throw error
+        } else if (orgId) {
+            const { error } = await authClient
+                .from('organisation_members')
+                .delete()
+                .eq('user_id', userId)
+                .eq('organisation_id', orgId)
+            if (error) throw error
+        } else {
+            throw new Error("Ingen organisation vald")
         }
-
-        const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
-
-        if (error) throw error
 
         await logAuditAction('delete', 'user', userId, { role: targetUser?.role ?? 'unknown' })
 
@@ -254,40 +321,70 @@ export async function deleteUserAction(userId: string) {
 
 export async function listOrganisationUsers() {
     try {
-        await verifyAdminAccess()
+        const { user, role: currentRole } = await verifyAdminAccess()
         const orgId = await getActiveOrgId()
         if (!orgId) {
             return { success: false as const, users: [], error: 'Ingen organisation vald' }
         }
 
-        let queryClient = await getAuthClient()
-        try {
-            queryClient = getServiceRoleClient()
-        } catch { /* listing works with RLS after 06_department_edit_permissions.sql */ }
+        const supabase = await getAuthClient()
 
-        const { data, error } = await queryClient
+        await supabase.from('organisation_members').upsert({
+            organisation_id: orgId,
+            user_id: user.id,
+            role: currentRole === 'user' ? 'user' : 'admin',
+            is_active: true,
+        }, { onConflict: 'organisation_id,user_id', ignoreDuplicates: true })
+
+        const { data: members, error: memberError } = await supabase
             .from('organisation_members')
-            .select('user_id, role, permissions, created_at, user_profiles(id, email, role, permissions, created_at)')
+            .select('user_id, role, permissions, created_at')
             .eq('organisation_id', orgId)
-            .eq('is_active', true)
             .order('created_at', { ascending: false })
 
-        if (error) throw error
+        if (memberError) throw memberError
 
-        const users = (data ?? []).flatMap((row: any) => {
-            const profile = Array.isArray(row.user_profiles) ? row.user_profiles[0] : row.user_profiles
+        const ids = [...new Set((members ?? []).map(m => m.user_id).filter(Boolean))]
+        if (!ids.includes(user.id)) ids.push(user.id)
+
+        const { data: profiles, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('id, email, role, permissions, created_at')
+            .in('id', ids)
+
+        if (profileError) throw profileError
+
+        const profileById = new Map((profiles ?? []).map(p => [p.id, p]))
+        const users = (members ?? []).flatMap((row) => {
+            const profile = profileById.get(row.user_id)
             if (!profile) return []
             const role = profile.role === 'superadmin'
                 ? 'superadmin'
                 : (row.role === 'admin' ? 'admin' : 'user')
+            const permissions = Array.isArray(row.permissions)
+                ? row.permissions
+                : (Array.isArray(profile.permissions) ? profile.permissions : [])
             return [{
                 id: profile.id as string,
                 email: profile.email as string,
                 role: role as 'superadmin' | 'admin' | 'user',
-                permissions: (row.permissions ?? profile.permissions ?? []) as string[],
+                permissions: permissions as string[],
                 created_at: profile.created_at as string,
             }]
         })
+
+        if (!users.some(u => u.id === user.id)) {
+            const me = profileById.get(user.id)
+            if (me) {
+                users.unshift({
+                    id: me.id,
+                    email: me.email,
+                    role: (me.role === 'superadmin' || me.role === 'admin' || me.role === 'user') ? me.role : 'user',
+                    permissions: Array.isArray(me.permissions) ? me.permissions : [],
+                    created_at: me.created_at,
+                })
+            }
+        }
 
         return { success: true as const, users }
     } catch (error: any) {
