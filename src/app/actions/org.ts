@@ -2,19 +2,8 @@
 
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { logAuditAction } from './audit'
 import { supabaseAnonKey, supabaseUrl } from '@/utils/supabase/config'
-
-function getServiceRoleClient() {
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseServiceKey) {
-        throw new Error('Supabase miljövariabler saknas.')
-    }
-    return createSupabaseClient(supabaseUrl, supabaseServiceKey, {
-        auth: { autoRefreshToken: false, persistSession: false }
-    })
-}
 
 async function getAuthClient() {
     const cookieStore = await cookies()
@@ -84,14 +73,13 @@ export async function getActiveOrgId(): Promise<string | null> {
 
 export async function createOrganisation(formData: FormData) {
     try {
-        const { user } = await verifySuperAdmin()
+        const { user, supabase } = await verifySuperAdmin()
         const name = formData.get('name') as string
         const slug = formData.get('slug') as string
         const primaryColor = (formData.get('primary_color') as string) || '#C9A84C'
         if (!name || !slug) throw new Error("Namn och slug krävs")
 
-        const adminClient = getServiceRoleClient()
-        const { data: org, error } = await adminClient
+        const { data: org, error } = await supabase
             .from('organisations')
             .insert({
                 name,
@@ -103,8 +91,7 @@ export async function createOrganisation(formData: FormData) {
             .single()
         if (error) throw error
 
-        // Create default app_settings row for this org
-        await adminClient.from('app_settings').insert({
+        await supabase.from('app_settings').insert({
             organisation_id: org.id,
             admin_title: name,
             login_title: 'Välkommen',
@@ -120,9 +107,8 @@ export async function createOrganisation(formData: FormData) {
 
 export async function updateOrganisation(orgId: string, data: Record<string, any>) {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
-        const { error } = await adminClient
+        const { supabase } = await verifySuperAdmin()
+        const { error } = await supabase
             .from('organisations')
             .update({ ...data, updated_at: new Date().toISOString() })
             .eq('id', orgId)
@@ -136,20 +122,18 @@ export async function updateOrganisation(orgId: string, data: Record<string, any
 
 export async function deleteOrganisation(orgId: string) {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
+        const { supabase } = await verifySuperAdmin()
 
-        // Delete related records first (in correct order)
-        await adminClient.from('audit_logs').delete().eq('organisation_id', orgId)
-        await adminClient.from('betalningar').delete().eq('organisation_id', orgId)
-        await adminClient.from('barn').delete().eq('organisation_id', orgId)
-        await adminClient.from('familjer').delete().eq('organisation_id', orgId)
-        await adminClient.from('intakter').delete().eq('organisation_id', orgId)
-        await adminClient.from('utgifter').delete().eq('organisation_id', orgId)
-        await adminClient.from('app_settings').delete().eq('organisation_id', orgId)
-        await adminClient.from('organisation_members').delete().eq('organisation_id', orgId)
+        await supabase.from('audit_logs').delete().eq('organisation_id', orgId)
+        await supabase.from('betalningar').delete().eq('organisation_id', orgId)
+        await supabase.from('barn').delete().eq('organisation_id', orgId)
+        await supabase.from('familjer').delete().eq('organisation_id', orgId)
+        await supabase.from('intakter').delete().eq('organisation_id', orgId)
+        await supabase.from('utgifter').delete().eq('organisation_id', orgId)
+        await supabase.from('app_settings').delete().eq('organisation_id', orgId)
+        await supabase.from('organisation_members').delete().eq('organisation_id', orgId)
 
-        const { error } = await adminClient.from('organisations').delete().eq('id', orgId)
+        const { error } = await supabase.from('organisations').delete().eq('id', orgId)
         if (error) throw error
         await logAuditAction('delete', 'organisation', orgId, {})
         return { success: true }
@@ -162,9 +146,8 @@ export async function deleteOrganisation(orgId: string) {
 
 export async function getOrgsWithMemberCount() {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
-        const { data: orgs } = await adminClient
+        const { supabase } = await verifySuperAdmin()
+        const { data: orgs } = await supabase
             .from('organisations')
             .select('*')
             .order('created_at', { ascending: false })
@@ -173,7 +156,7 @@ export async function getOrgsWithMemberCount() {
 
         const orgsWithCount = await Promise.all(
             orgs.map(async (org) => {
-                const { count } = await adminClient
+                const { count } = await supabase
                     .from('organisation_members')
                     .select('*', { count: 'exact', head: true })
                     .eq('organisation_id', org.id)
@@ -192,8 +175,8 @@ export async function getOrgsWithMemberCount() {
 // ── Org members ──
 
 export async function getOrgMembers(orgId: string) {
-    const adminClient = getServiceRoleClient()
-    const { data } = await adminClient
+    const { supabase } = await verifySuperAdmin()
+    const { data } = await supabase
         .from('organisation_members')
         .select('*, user_profiles(email, role)')
         .eq('organisation_id', orgId)
@@ -203,9 +186,8 @@ export async function getOrgMembers(orgId: string) {
 
 export async function addOrgMember(orgId: string, userId: string, role: string, permissions: string[]) {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
-        const { error } = await adminClient
+        const { supabase } = await verifySuperAdmin()
+        const { error } = await supabase
             .from('organisation_members')
             .upsert({
                 organisation_id: orgId,
@@ -224,9 +206,8 @@ export async function addOrgMember(orgId: string, userId: string, role: string, 
 
 export async function removeOrgMember(orgId: string, userId: string) {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
-        const { error } = await adminClient
+        const { supabase } = await verifySuperAdmin()
+        const { error } = await supabase
             .from('organisation_members')
             .delete()
             .eq('organisation_id', orgId)
@@ -241,9 +222,8 @@ export async function removeOrgMember(orgId: string, userId: string) {
 
 export async function updateOrgMemberRole(orgId: string, userId: string, role: string, permissions: string[]) {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
-        const { error } = await adminClient
+        const { supabase } = await verifySuperAdmin()
+        const { error } = await supabase
             .from('organisation_members')
             .update({ role, permissions })
             .eq('organisation_id', orgId)
@@ -259,9 +239,8 @@ export async function updateOrgMemberRole(orgId: string, userId: string, role: s
 
 export async function getAllUsers() {
     try {
-        await verifySuperAdmin()
-        const adminClient = getServiceRoleClient()
-        const { data } = await adminClient
+        const { supabase } = await verifySuperAdmin()
+        const { data } = await supabase
             .from('user_profiles')
             .select('id, email, role, permissions')
             .order('email')
