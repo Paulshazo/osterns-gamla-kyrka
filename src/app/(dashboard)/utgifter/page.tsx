@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client"
 import { TrendingDown, Plus, RefreshCcw, FileSpreadsheet, FileText, X } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 const months = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
 
@@ -13,6 +14,7 @@ export default function UtgifterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
     const [items, setItems] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedMonth, setSelectedMonth] = useState("Alla")
@@ -20,16 +22,16 @@ export default function UtgifterPage() {
     const [exporting, setExporting] = useState(false)
 
     const fetchItems = async () => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         setLoading(true)
-        let query = supabase.from('utgifter').select('*').order('datum', { ascending: false })
+        let query = supabase.from('utgifter').select('*').eq('organisation_id', activeOrgId).order('datum', { ascending: false })
         if (selectedMonth !== "Alla") query = query.eq('manad', selectedMonth)
         const { data } = await query
         setItems(data ?? [])
         setLoading(false)
     }
 
-    useEffect(() => { fetchItems() }, [selectedMonth, supabase])
+    useEffect(() => { fetchItems() }, [selectedMonth, supabase, activeOrgId])
 
     const monthlySummary = items.reduce((acc: any, item: any) => {
         const m = item.manad
@@ -182,13 +184,13 @@ export default function UtgifterPage() {
             </div>
 
             {showForm && (
-                <ExpenseForm supabase={supabase} t={t} language={language} onClose={() => setShowForm(false)} onSuccess={() => { setShowForm(false); fetchItems() }} />
+                <ExpenseForm supabase={supabase} t={t} language={language} activeOrgId={activeOrgId} onClose={() => setShowForm(false)} onSuccess={() => { setShowForm(false); fetchItems() }} />
             )}
         </div>
     )
 }
 
-function ExpenseForm({ supabase, t, language, onClose, onSuccess }: any) {
+function ExpenseForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: any) {
     const [loading, setLoading] = useState(false)
     const [data, setData] = useState({
         manad: months[new Date().getMonth()],
@@ -202,7 +204,7 @@ function ExpenseForm({ supabase, t, language, onClose, onSuccess }: any) {
         if (!supabase) return
         setLoading(true)
         const total = (Number(data.hyra) || 0) + (Number(data.frukost) || 0) + (Number(data.rakning) || 0) + (Number(data.annat) || 0)
-        const { error } = await supabase.from('utgifter').insert([{ ...data, total }])
+        const { error } = await supabase.from('utgifter').insert([{ ...data, total, organisation_id: activeOrgId }])
         setLoading(false)
         if (error) alert(error.message)
         else onSuccess()

@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { useLanguage } from "@/components/language-provider"
 import { Search, ScrollText, RefreshCw, User, LogIn, LogOut, Plus, Edit2, Trash2, Download, Mail, Shield } from "lucide-react"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { format } from "date-fns"
 import { sv, enUS } from "date-fns/locale"
 
@@ -48,6 +49,7 @@ export default function LoggarPage() {
     }, [])
     const { t, language } = useLanguage()
     const locale = language === 'sv' ? sv : enUS
+    const { activeOrgId } = useActiveOrg()
 
     const [logs, setLogs] = useState<AuditLog[]>([])
     const [loading, setLoading] = useState(true)
@@ -56,12 +58,13 @@ export default function LoggarPage() {
     const [currentUserRole, setCurrentUserRole] = useState("user")
 
     const fetchLogs = async () => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         setLoading(true)
         try {
             const { data } = await supabase
                 .from('audit_logs')
                 .select('*')
+                .eq('organisation_id', activeOrgId)
                 .order('created_at', { ascending: false })
                 .limit(500)
             setLogs(data ?? [])

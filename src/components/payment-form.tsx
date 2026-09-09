@@ -6,6 +6,7 @@ import { X, Mail, CheckCircle2 } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { sendPaymentReceiptAction } from "@/app/actions/email"
 import { logAuditAction } from "@/app/actions/audit"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 interface PaymentFormProps {
     onClose: () => void
@@ -19,6 +20,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [families, setFamilies] = useState<any[]>([])
@@ -41,16 +43,17 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
     })
 
     useEffect(() => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         const fetchFamilies = async () => {
             const { data } = await supabase
                 .from('familjer')
                 .select('id, familje_namn, make_namn, hustru_namn, mail')
+                .eq('organisation_id', activeOrgId)
                 .order('familje_namn')
             if (data) setFamilies(data)
         }
         fetchFamilies()
-    }, [supabase])
+    }, [supabase, activeOrgId])
 
     // When family changes, auto-fill email if available
     useEffect(() => {
@@ -134,6 +137,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                         betalat_till_datum: formData.betalat_till_datum,
                         betalat_via: formData.betalat_via,
                         betalnings_referens: formData.betalnings_referens,
+                        organisation_id: activeOrgId,
                     }])
                     .select()
                 if (err) throw err

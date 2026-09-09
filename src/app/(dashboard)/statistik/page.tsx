@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client"
 import { BarChart3, TrendingUp, TrendingDown, FileSpreadsheet, FileText } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 const months = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
 
@@ -13,17 +14,18 @@ export default function StatistikPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
     const [chartData, setChartData] = useState<{ month: string; income: number; expense: number }[]>([])
     const [loading, setLoading] = useState(true)
     const [exporting, setExporting] = useState(false)
 
     useEffect(() => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         const fetchData = async () => {
             setLoading(true)
             const [{ data: income }, { data: expenses }] = await Promise.all([
-                supabase.from('intakter').select('manad, total'),
-                supabase.from('utgifter').select('manad, total'),
+                supabase.from('intakter').select('manad, total').eq('organisation_id', activeOrgId),
+                supabase.from('utgifter').select('manad, total').eq('organisation_id', activeOrgId),
             ])
             const combined = months.map(m => ({
                 month: m,
@@ -34,7 +36,7 @@ export default function StatistikPage() {
             setLoading(false)
         }
         fetchData()
-    }, [supabase])
+    }, [supabase, activeOrgId])
 
     const maxVal = Math.max(...chartData.map(d => Math.max(d.income, d.expense)), 1)
     const totalIncome  = chartData.reduce((s, d) => s + d.income, 0)

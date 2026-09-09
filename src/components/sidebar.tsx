@@ -17,9 +17,13 @@ import {
     X,
     Menu,
     Globe,
+    Building2,
+    ArrowLeftRight,
+    Shield,
 } from "lucide-react"
 import { createClient } from "@/utils/supabase/client"
 import { useLanguage } from "@/components/language-provider"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { useEffect, useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { logAuditAction } from "@/app/actions/audit"
@@ -43,6 +47,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const pathname = usePathname()
     const router = useRouter()
     const { language, setLanguage, t } = useLanguage()
+    const { activeOrgId, activeOrgName, activeOrgLogo, activeOrgColor } = useActiveOrg()
     const [adminTitle, setAdminTitle]   = useState("Kyrkoregistret")
     const [adminLogoUrl, setAdminLogoUrl] = useState<string | null>(null)
     const [adminLogoSize, setAdminLogoSize] = useState(32)
@@ -51,14 +56,15 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const [userEmail, setUserEmail] = useState("")
 
     useEffect(() => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
 
         const fetchSettings = async () => {
             try {
                 const { data } = await supabase
                     .from('app_settings')
                     .select('admin_title, admin_logo_url, admin_logo_size')
-                    .eq('id', 1)
+                    .eq('organisation_id', activeOrgId)
+                    .limit(1)
                     .single()
                 if (data?.admin_title) setAdminTitle(data.admin_title)
                 if (data?.admin_logo_url) setAdminLogoUrl(data.admin_logo_url)
@@ -86,13 +92,21 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
         fetchSettings()
         fetchUserProfile()
-    }, [supabase])
+    }, [supabase, activeOrgId])
 
     const handleLogout = async () => {
         if (supabase) {
             await logAuditAction('logout', 'auth', '', { email: userEmail })
             await supabase.auth.signOut()
         }
+        // Clear org cookie
+        document.cookie = 'active_org_id=; path=/; max-age=0'
+        router.push("/login")
+    }
+
+    const handleSwitchOrg = () => {
+        // Clear org cookie and redirect to login for org selection
+        document.cookie = 'active_org_id=; path=/; max-age=0'
         router.push("/login")
     }
 
@@ -140,6 +154,29 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 </div>
             </div>
 
+            {/* Active org indicator */}
+            {activeOrgName && (
+                <div className="px-3 pt-3">
+                    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-[10px]" style={{ background: '#2A2A2A' }}>
+                        {activeOrgLogo ? (
+                            <img src={activeOrgLogo} alt="" className="w-6 h-6 rounded-md object-contain" />
+                        ) : (
+                            <Building2 size={14} style={{ color: activeOrgColor, flexShrink: 0 }} />
+                        )}
+                        <span className="text-xs font-medium truncate flex-1" style={{ color: '#F0EBE0' }}>
+                            {activeOrgName}
+                        </span>
+                        <button
+                            onClick={handleSwitchOrg}
+                            className="p-1 rounded-md hover:bg-white/10 transition-colors flex-shrink-0"
+                            title={language === 'sv' ? 'Byt organisation' : 'Switch organisation'}
+                        >
+                            <ArrowLeftRight size={12} style={{ color: '#C9A84C' }} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Nav items */}
             <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
                 {navItems.map((item) => {
@@ -164,6 +201,21 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                         </Link>
                     )
                 })}
+
+                {/* Super Admin link for superadmins */}
+                {userRole === 'superadmin' && (
+                    <Link
+                        href="/super-admin"
+                        onClick={onClose}
+                        className={cn(
+                            "sidebar-item",
+                            pathname.startsWith('/super-admin') && "active"
+                        )}
+                    >
+                        <Shield size={17} />
+                        <span>Super Admin</span>
+                    </Link>
+                )}
             </nav>
 
             {/* Footer */}

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { Save, Loader2, Mail, Image as ImageIcon, Shield, Eye, EyeOff, Type } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { logAuditAction } from "@/app/actions/audit"
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
@@ -14,6 +15,7 @@ export default function SettingsPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [currentUserRole, setCurrentUserRole] = useState("user")
@@ -50,12 +52,16 @@ export default function SettingsPage() {
             } catch { /* ignore */ }
 
             try {
-                // Only select known-safe base columns first
-                const { data, error } = await supabase
+                // Load org-specific settings (fall back to id=1 for backward compatibility)
+                let query = supabase
                     .from('app_settings')
                     .select('admin_title, admin_logo_url, admin_logo_size, login_title, login_subtitle, login_logo_url, login_logo_size')
-                    .eq('id', 1)
-                    .single()
+                if (activeOrgId) {
+                    query = query.eq('organisation_id', activeOrgId)
+                } else {
+                    query = query.eq('id', 1)
+                }
+                const { data, error } = await query.single()
                 if (data) {
                     setSettings(prev => ({
                         ...prev,
@@ -73,11 +79,15 @@ export default function SettingsPage() {
 
             // Try to load Resend columns separately — they may not exist yet
             try {
-                const { data, error } = await supabase
+                let resendQuery = supabase
                     .from('app_settings')
                     .select('resend_api_key, resend_from_email, resend_from_name')
-                    .eq('id', 1)
-                    .single()
+                if (activeOrgId) {
+                    resendQuery = resendQuery.eq('organisation_id', activeOrgId)
+                } else {
+                    resendQuery = resendQuery.eq('id', 1)
+                }
+                const { data, error } = await resendQuery.single()
                 if (!error && data) {
                     setHasResendColumns(true)
                     setSettings(prev => ({
@@ -102,7 +112,6 @@ export default function SettingsPage() {
         try {
             // Step 1: Save base settings (always works)
             const basePayload: Record<string, any> = {
-                id:              1,
                 admin_title:     settings.admin_title,
                 admin_logo_url:  settings.admin_logo_url,
                 admin_logo_size: settings.admin_logo_size,
@@ -112,17 +121,26 @@ export default function SettingsPage() {
                 login_logo_size: settings.login_logo_size,
                 updated_at:      new Date().toISOString(),
             }
+            if (activeOrgId) {
+                basePayload.organisation_id = activeOrgId
+            } else {
+                basePayload.id = 1
+            }
             const { error: baseError } = await supabase.from('app_settings').upsert(basePayload)
             if (baseError) throw baseError
 
             // Step 2: Save Resend settings only if columns exist
             if (hasResendColumns) {
                 const resendPayload: Record<string, any> = {
-                    id:                1,
                     resend_api_key:    settings.resend_api_key    || null,
                     resend_from_email: settings.resend_from_email || null,
                     resend_from_name:  settings.resend_from_name  || 'Kyrkoregistret',
                     updated_at:        new Date().toISOString(),
+                }
+                if (activeOrgId) {
+                    resendPayload.organisation_id = activeOrgId
+                } else {
+                    resendPayload.id = 1
                 }
                 const { error: resendError } = await supabase.from('app_settings').upsert(resendPayload)
                 if (resendError) {

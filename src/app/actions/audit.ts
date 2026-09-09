@@ -1,14 +1,11 @@
 "use server"
 
 import { createClient } from "@/utils/supabase/server"
+import { cookies } from "next/headers"
 
-/**
- * logAuditAction — lightweight server action called by client components
- * after every create/update/delete/login/logout/export/settings operation.
- */
 export async function logAuditAction(
-    action: string,            // 'create' | 'update' | 'delete' | 'login' | 'logout' | 'export' | 'email_sent' | 'settings'
-    resource: string,          // 'family' | 'payment' | 'user' | 'settings' | 'auth' | 'income' | 'expense'
+    action: string,
+    resource: string,
     resourceId: string = '',
     details: Record<string, unknown> = {}
 ) {
@@ -17,13 +14,17 @@ export async function logAuditAction(
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
 
+        const cookieStore = await cookies()
+        const activeOrgId = cookieStore.get('active_org_id')?.value || null
+
         await supabase.from('audit_logs').insert({
-            user_id:     user.id,
-            user_email:  user.email,
+            user_id:         user.id,
+            user_email:      user.email,
             action,
             resource,
-            resource_id: resourceId || null,
+            resource_id:     resourceId || null,
             details,
+            organisation_id: activeOrgId,
         })
     } catch {
         // fire-and-forget — never block the UI

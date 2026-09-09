@@ -13,6 +13,7 @@ import { PaymentForm } from "@/components/payment-form"
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { sendPaymentReminderAction } from "@/app/actions/email"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 export default function BetalningarPage() {
     const supabase = useMemo(() => {
@@ -20,6 +21,7 @@ export default function BetalningarPage() {
     }, [])
     const { t, language } = useLanguage()
     const locale = language === 'sv' ? sv : enUS
+    const { activeOrgId } = useActiveOrg()
 
     const [payments, setPayments] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
@@ -31,7 +33,7 @@ export default function BetalningarPage() {
     const [reminderFeedback, setReminderFeedback] = useState<{ id: string; ok: boolean; msg: string } | null>(null)
 
     const fetchPayments = async () => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         setLoading(true)
         const { data } = await supabase
             .from('familjer')
@@ -40,6 +42,7 @@ export default function BetalningarPage() {
                 betalningar(id, total_manads_avgift, total_ars_avgift, summan, betalat_till_datum, betalat_via, betalnings_referens, created_at),
                 barn(manads_avgift)
             `)
+            .eq('organisation_id', activeOrgId)
             .order('familje_namn', { ascending: true })
 
         const processed = (data ?? []).map((f: any) => {
@@ -67,7 +70,7 @@ export default function BetalningarPage() {
         setLoading(false)
     }
 
-    useEffect(() => { fetchPayments() }, [supabase])
+    useEffect(() => { fetchPayments() }, [supabase, activeOrgId])
 
     const getStatus = (paidUntil: string | null) => {
         if (!paidUntil) return { label: t('status.unpaid'), cls: 'badge-danger', icon: AlertCircle }

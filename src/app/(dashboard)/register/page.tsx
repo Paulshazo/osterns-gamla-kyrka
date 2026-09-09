@@ -10,6 +10,7 @@ import { FamilyForm } from "@/components/family-form"
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { logAuditAction } from "@/app/actions/audit"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 interface Family {
     id: string
@@ -36,6 +37,7 @@ export default function RegisterPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
 
     const [families, setFamilies] = useState<Family[]>([])
     const [loading, setLoading] = useState(true)
@@ -49,11 +51,12 @@ export default function RegisterPage() {
     const [exporting, setExporting] = useState(false)
 
     const fetchFamilies = async () => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         setLoading(true)
         const { data } = await supabase
             .from('familjer')
             .select('*')
+            .eq('organisation_id', activeOrgId)
             .order('familje_namn', { ascending: true })
         setFamilies(data ?? [])
         setLoading(false)
@@ -101,7 +104,7 @@ export default function RegisterPage() {
         fetchFamilies()
     }
 
-    useEffect(() => { fetchFamilies() }, [supabase])
+    useEffect(() => { fetchFamilies() }, [supabase, activeOrgId])
 
     const filteredFamilies = families.filter(f =>
         f.familje_namn.toLowerCase().includes(searchQuery.toLowerCase()) ||

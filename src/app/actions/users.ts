@@ -6,8 +6,6 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { logAuditAction } from './audit'
 import { supabaseAnonKey, supabaseUrl } from '@/utils/supabase/config'
 
-// We need a Service Role client to bypass RLS and create/delete users
-// without logging out the current admin user.
 function getServiceRoleClient() {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -27,7 +25,6 @@ function getServiceRoleClient() {
     })
 }
 
-// Helper to get the authenticated user client based on cookies
 async function getAuthClient() {
     const cookieStore = await cookies()
     return createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -44,7 +41,6 @@ async function getAuthClient() {
     })
 }
 
-// Verify if the current user is an admin or superadmin
 async function verifyAdminAccess() {
     const supabase = await getAuthClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -66,6 +62,11 @@ async function verifyAdminAccess() {
     return { user, role: profile.role }
 }
 
+async function getActiveOrgId(): Promise<string | null> {
+    const cookieStore = await cookies()
+    return cookieStore.get('active_org_id')?.value ?? null
+}
+
 export async function createUserAction(formData: FormData) {
     try {
         const { role: currentUserRole } = await verifyAdminAccess()
@@ -75,26 +76,21 @@ export async function createUserAction(formData: FormData) {
         const role = formData.get('role') as string
         const rawPermissions = formData.getAll('permissions')
 
-        // Only superadmins can create other superadmins
         if (role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan skapa andra superadmins.")
         }
 
         const supabaseAdmin = getServiceRoleClient()
 
-        // 1. Create the user in auth.users
         const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
             email: email,
             password: password,
-            email_confirm: true // Auto-confirm the email
+            email_confirm: true
         })
 
         if (createError) throw createError
-
         if (!authData.user) throw new Error("Kunde inte skapa användare.")
 
-        // 2. The database trigger `handle_new_user` will have created a default profile for them.
-        // We now need to UPDATE that profile with the assigned role and permissions.
         const permissionsArray = rawPermissions.map(p => p.toString())
 
         const { error: updateError } = await supabaseAdmin
@@ -108,7 +104,21 @@ export async function createUserAction(formData: FormData) {
 
         if (updateError) throw updateError
 
-        await logAuditAction('create', 'user', authData.user.id, { email, role })
+        // Add user to current organisation
+        const activeOrgId = await getActiveOrgId()
+        if (activeOrgId) {
+            await supabaseAdmin
+                .from('organisation_members')
+                .upsert({
+                    organisation_id: activeOrgId,
+                    user_id: authData.user.id,
+                    role: role,
+                    permissions: permissionsArray,
+                    is_active: true,
+                }, { onConflict: 'organisation_id,user_id' })
+        }
+
+        await logAuditAction('create', 'user', authData.user.id, { email, role, organisation_id: activeOrgId })
 
         return { success: true, message: 'Användare skapad framgångsrikt!' }
     } catch (error: any) {
@@ -123,20 +133,16 @@ export async function updateUserRoleAndPermissions(userId: string, role: string,
 
         const supabase = await getAuthClient()
 
-        // Verify we aren't trying to downgrade a superadmin without being a superadmin ourselves
         const { data: targetUser } = await supabase.from('user_profiles').select('role').eq('id', userId).single()
 
         if (targetUser?.role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan ändra rättigheter för andra superadmins.")
         }
 
-        // Prevent admins from upgrading someone to superadmin
         if (role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan tilldela superadmin-rollen.")
         }
 
-        // For simple updates we can just use the authenticated client since admins 
-        // have UPDATE permissions on the user_profiles table via RLS policies
         const { error } = await supabase
             .from('user_profiles')
             .update({
@@ -147,6 +153,20 @@ export async function updateUserRoleAndPermissions(userId: string, role: string,
             .eq('id', userId)
 
         if (error) throw error
+
+        // Also update organisation_members role/permissions
+        const activeOrgId = await getActiveOrgId()
+        if (activeOrgId) {
+            const supabaseAdmin = getServiceRoleClient()
+            await supabaseAdmin
+                .from('organisation_members')
+                .update({
+                    role: role,
+                    permissions: permissions,
+                })
+                .eq('user_id', userId)
+                .eq('organisation_id', activeOrgId)
+        }
 
         return { success: true }
     } catch (error: any) {
@@ -165,14 +185,12 @@ export async function deleteUserAction(userId: string) {
 
         const supabaseAdmin = getServiceRoleClient()
 
-        // Verify target user's role
         const { data: targetUser } = await supabaseAdmin.from('user_profiles').select('role').eq('id', userId).single()
 
         if (targetUser?.role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan radera en annan superadmin.")
         }
 
-        // Delete from auth.users (Cascade delete will remove the profile)
         const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
 
         if (error) throw error

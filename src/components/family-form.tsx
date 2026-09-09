@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client"
 import { X, Plus, Trash2, Loader2 } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { logAuditAction } from "@/app/actions/audit"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 interface FamilyFormProps {
     onClose: () => void
@@ -19,6 +20,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
     const [loading, setLoading]                 = useState(false)
     const [error, setError]                     = useState<string | null>(null)
     const [validationErrors, setValidationErrors] = useState<string[]>([])
@@ -68,17 +70,18 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         setConfirmMsg(null)
         try {
             const childrenPayload = children.map(({ _key, ...c }) => c)
+            const familyPayload = { ...familyData, organisation_id: activeOrgId }
             if (familyData.id) {
                 const { error: rpcError } = await supabase.rpc('update_family_with_children', {
                     p_family_id:   familyData.id,
-                    family_data:   familyData,
+                    family_data:   familyPayload,
                     children_data: childrenPayload,
                 })
                 if (rpcError) throw rpcError
                 logAuditAction('update', 'family', String(familyData.id), { familje_namn: familyData.familje_namn })
             } else {
                 const { data: newId, error: rpcError } = await supabase.rpc('add_family_with_children', {
-                    family_data:   familyData,
+                    family_data:   familyPayload,
                     children_data: childrenPayload,
                 })
                 if (rpcError) throw rpcError

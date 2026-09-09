@@ -4,12 +4,14 @@ import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { TrendingUp, TrendingDown, Wallet, Users, Users2 } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
+import { useActiveOrg } from "@/hooks/useActiveOrg"
 
 export default function Dashboard() {
     const supabase = useMemo(() => {
         try { return createClient() } catch { return null }
     }, [])
     const { t } = useLanguage()
+    const { activeOrgId } = useActiveOrg()
     const [stats, setStats] = useState({
         totalIncome: 0,
         totalExpenses: 0,
@@ -19,7 +21,7 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
-        if (!supabase) return
+        if (!supabase || !activeOrgId) return
         const fetchStats = async () => {
             setLoading(true)
             const [
@@ -29,11 +31,11 @@ export default function Dashboard() {
                 { data: adults },
                 { count: children },
             ] = await Promise.all([
-                supabase.from('intakter').select('total'),
-                supabase.from('utgifter').select('total'),
-                supabase.from('familjer').select('*', { count: 'exact', head: true }),
-                supabase.from('familjer').select('make_namn, hustru_namn'),
-                supabase.from('barn').select('*', { count: 'exact', head: true }),
+                supabase.from('intakter').select('total').eq('organisation_id', activeOrgId),
+                supabase.from('utgifter').select('total').eq('organisation_id', activeOrgId),
+                supabase.from('familjer').select('*', { count: 'exact', head: true }).eq('organisation_id', activeOrgId),
+                supabase.from('familjer').select('make_namn, hustru_namn').eq('organisation_id', activeOrgId),
+                supabase.from('barn').select('*', { count: 'exact', head: true }).eq('organisation_id', activeOrgId),
             ])
 
             const totalInc = income?.reduce((s, i) => s + (i.total ?? 0), 0) ?? 0
@@ -53,7 +55,7 @@ export default function Dashboard() {
             setLoading(false)
         }
         fetchStats()
-    }, [supabase])
+    }, [supabase, activeOrgId])
 
     const remaining = stats.totalIncome - stats.totalExpenses
 

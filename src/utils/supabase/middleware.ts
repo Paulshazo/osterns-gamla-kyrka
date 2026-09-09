@@ -31,15 +31,23 @@ export async function updateSession(request: NextRequest) {
 
         const pathname = request.nextUrl.pathname
 
+        // Unauthenticated → login
         if (!user && !pathname.startsWith('/login') && !pathname.startsWith('/auth')) {
-            const url = request.nextUrl.clone()
-            url.pathname = '/login'
-            return NextResponse.redirect(url)
+            const redirectUrl = request.nextUrl.clone()
+            redirectUrl.pathname = '/login'
+            return NextResponse.redirect(redirectUrl)
         }
 
-        // --- RBAC / Route Protection Logic ---
-        if (user && !pathname.startsWith('/login') && !pathname.startsWith('/auth')) {
-            // Fetch the user's role and permissions
+        // Set active org context from cookie for Supabase RLS
+        const activeOrgId = request.cookies.get('active_org_id')?.value
+        if (activeOrgId && user) {
+            try {
+                await supabase.rpc('set_current_org', { org_id: activeOrgId })
+            } catch { /* ignore if RPC not yet created */ }
+        }
+
+        // RBAC for authenticated users
+        if (user && !pathname.startsWith('/login') && !pathname.startsWith('/auth') && !pathname.startsWith('/api')) {
             const { data: profile } = await supabase
                 .from('user_profiles')
                 .select('role, permissions')
@@ -49,7 +57,18 @@ export async function updateSession(request: NextRequest) {
             if (profile) {
                 const { role, permissions } = profile
 
-                // Map paths to permission keys
+                // /super-admin — only superadmins
+                if (pathname.startsWith('/super-admin')) {
+                    if (role !== 'superadmin') {
+                        const redirectUrl = request.nextUrl.clone()
+                        redirectUrl.pathname = '/'
+                        return NextResponse.redirect(redirectUrl)
+                    }
+                    // Superadmin on /super-admin — always allow, no org needed
+                    return supabaseResponse
+                }
+
+                // Route permission map
                 const routePermissionMap: Record<string, string> = {
                     '/register': 'register',
                     '/betalningar': 'payments',
@@ -60,38 +79,34 @@ export async function updateSession(request: NextRequest) {
                     '/anvandare': 'users'
                 }
 
-                // Superadmins and admins can access anything
+                // Regular users need explicit permissions
                 if (role !== 'superadmin' && role !== 'admin') {
-                    // Check if current path requires a specific permission
                     for (const [route, perm] of Object.entries(routePermissionMap)) {
                         if (pathname.startsWith(route)) {
-                            // If user is accessing a protected route, do they have the permission?
-                            // Admins automatically get access to everything except maybe 'users', 
-                            // but let's strictly require the explicit permission array for simplicity,
-                            // OR let admins bypass? Let's strictly rely on the permissions array for regular access,
-                            // except 'users' and 'installningar' which should be admin-only anyway.
-
-                            // If they don't have the explicit permission, block them
                             if (!permissions || !Array.isArray(permissions) || !permissions.includes(perm)) {
-                                // Redirect to dashboard / home as a fallback
-                                const url = request.nextUrl.clone()
-                                url.pathname = '/'
-                                return NextResponse.redirect(url)
+                                const redirectUrl = request.nextUrl.clone()
+                                redirectUrl.pathname = '/'
+                                return NextResponse.redirect(redirectUrl)
                             }
                         }
                     }
 
-                    // Strict block for admin-only routes just in case the UI checkbox was ticked somehow
                     if ((pathname.startsWith('/installningar') || pathname.startsWith('/anvandare')) && role === 'user') {
-                        const url = request.nextUrl.clone()
-                        url.pathname = '/'
-                        return NextResponse.redirect(url)
+                        const redirectUrl = request.nextUrl.clone()
+                        redirectUrl.pathname = '/'
+                        return NextResponse.redirect(redirectUrl)
+                    }
+
+                    // Non-superadmin without active org → send to login for org selection
+                    if (!activeOrgId) {
+                        const redirectUrl = request.nextUrl.clone()
+                        redirectUrl.pathname = '/login'
+                        return NextResponse.redirect(redirectUrl)
                     }
                 }
             }
         }
     } catch (e) {
-        // If something fails in auth, return the basic response instead of crashing with 500
         console.error('Middleware auth error:', e)
     }
 
