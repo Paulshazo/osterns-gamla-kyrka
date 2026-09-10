@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/client"
 import { Save, Loader2, Mail, Image as ImageIcon, Shield, Eye, EyeOff, Type } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
-import { logAuditAction } from "@/app/actions/audit"
+import { saveAppSettingsAction } from "@/app/actions/settings"
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
 const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
@@ -40,116 +40,75 @@ export default function SettingsPage() {
     const [uploadingLogin, setUploadingLogin] = useState(false)
 
     useEffect(() => {
-        if (!supabase) return
+        if (!supabase || orgLoading) return
         const init = async () => {
+            setLoading(true)
             try {
-                // Load org-specific settings (fall back to id=1 for backward compatibility)
                 let query = supabase
                     .from('app_settings')
-                    .select('admin_title, admin_logo_url, admin_logo_size, login_title, login_subtitle, login_logo_url, login_logo_size')
+                    .select('admin_title, admin_logo_url, admin_logo_size, login_title, login_subtitle, login_logo_url, login_logo_size, resend_api_key, resend_from_email, resend_from_name')
                 if (activeOrgId) {
                     query = query.eq('organisation_id', activeOrgId)
                 } else {
                     query = query.eq('id', 1)
                 }
-                const { data, error } = await query.single()
+                const { data, error } = await query.maybeSingle()
                 if (data) {
-                    setSettings(prev => ({
-                        ...prev,
-                        admin_title:     data.admin_title     ?? "",
-                        admin_logo_url:  data.admin_logo_url  ?? "",
-                        admin_logo_size: data.admin_logo_size ?? 32,
-                        login_title:     data.login_title     ?? "",
-                        login_subtitle:  data.login_subtitle  ?? "",
-                        login_logo_url:  data.login_logo_url  ?? "",
-                        login_logo_size: data.login_logo_size ?? 64,
-                    }))
-                }
-                if (error) console.warn('app_settings load:', error.message)
-            } catch { /* ignore */ }
-
-            // Try to load Resend columns separately — they may not exist yet
-            try {
-                let resendQuery = supabase
-                    .from('app_settings')
-                    .select('resend_api_key, resend_from_email, resend_from_name')
-                if (activeOrgId) {
-                    resendQuery = resendQuery.eq('organisation_id', activeOrgId)
-                } else {
-                    resendQuery = resendQuery.eq('id', 1)
-                }
-                const { data, error } = await resendQuery.single()
-                if (!error && data) {
                     setHasResendColumns(true)
                     setSettings(prev => ({
                         ...prev,
+                        admin_title:       data.admin_title       ?? "",
+                        admin_logo_url:    data.admin_logo_url    ?? "",
+                        admin_logo_size:   data.admin_logo_size   ?? 32,
+                        login_title:       data.login_title       ?? "",
+                        login_subtitle:    data.login_subtitle    ?? "",
+                        login_logo_url:    data.login_logo_url    ?? "",
+                        login_logo_size:   data.login_logo_size   ?? 64,
                         resend_api_key:    data.resend_api_key    ?? "",
                         resend_from_email: data.resend_from_email ?? "",
                         resend_from_name:  data.resend_from_name  ?? "Kyrkoregistret",
                     }))
+                } else if (error?.message?.includes('resend_')) {
+                    setHasResendColumns(false)
+                } else if (!error) {
+                    setHasResendColumns(true)
                 }
-            } catch { /* columns not yet created */ }
+                if (error && !error.message?.includes('resend_')) {
+                    console.warn('app_settings load:', error.message)
+                }
+            } catch { /* ignore */ }
 
             setLoading(false)
         }
         init()
-    }, [supabase, activeOrgId])
+    }, [supabase, activeOrgId, orgLoading])
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!supabase || !canManageUsers) return
+        if (!canManageUsers) {
+            setMessage({
+                type: 'error',
+                text: language === 'sv' ? 'Du måste vara admin för att spara.' : 'You must be admin to save.',
+            })
+            return
+        }
         setSaving(true)
         setMessage(null)
         try {
-            // Step 1: Save base settings (always works)
-            const basePayload: Record<string, any> = {
-                admin_title:     settings.admin_title,
-                admin_logo_url:  settings.admin_logo_url,
-                admin_logo_size: settings.admin_logo_size,
-                login_title:     settings.login_title,
-                login_subtitle:  settings.login_subtitle,
-                login_logo_url:  settings.login_logo_url,
-                login_logo_size: settings.login_logo_size,
-                updated_at:      new Date().toISOString(),
-            }
-            if (activeOrgId) {
-                basePayload.organisation_id = activeOrgId
-            } else {
-                basePayload.id = 1
-            }
-            const { error: baseError } = await supabase.from('app_settings').upsert(basePayload)
-            if (baseError) throw baseError
-
-            // Step 2: Save Resend settings only if columns exist
-            if (hasResendColumns) {
-                const resendPayload: Record<string, any> = {
-                    resend_api_key:    settings.resend_api_key    || null,
-                    resend_from_email: settings.resend_from_email || null,
-                    resend_from_name:  settings.resend_from_name  || 'Kyrkoregistret',
-                    updated_at:        new Date().toISOString(),
-                }
-                if (activeOrgId) {
-                    resendPayload.organisation_id = activeOrgId
-                } else {
-                    resendPayload.id = 1
-                }
-                const { error: resendError } = await supabase.from('app_settings').upsert(resendPayload)
-                if (resendError) {
-                    // Columns still missing — show migration hint
-                    setMessage({
-                        type: 'error',
-                        text: language === 'sv'
-                            ? 'E-postkonfiguration kunde inte sparas — kör SQL-patchen 01_patch_app_settings_columns.sql i Supabase SQL-editorn.'
-                            : 'Email config could not be saved — run SQL patch 01_patch_app_settings_columns.sql in the Supabase SQL editor.',
-                    })
-                    setSaving(false)
-                    return
-                }
-            }
-
-            logAuditAction('settings', 'settings', '1', { admin_title: settings.admin_title })
+            const result = await saveAppSettingsAction({
+                admin_title:       settings.admin_title,
+                admin_logo_url:    settings.admin_logo_url,
+                admin_logo_size:   settings.admin_logo_size,
+                login_title:       settings.login_title,
+                login_subtitle:    settings.login_subtitle,
+                login_logo_url:    settings.login_logo_url,
+                login_logo_size:   settings.login_logo_size,
+                resend_api_key:    settings.resend_api_key,
+                resend_from_email: settings.resend_from_email,
+                resend_from_name:  settings.resend_from_name,
+            })
+            if (!result.success) throw new Error(result.error)
             setMessage({ type: 'success', text: t('page.settings.saved') })
-            setTimeout(() => window.location.reload(), 1200)
         } catch (err: any) {
             setMessage({ type: 'error', text: err.message ?? t('page.settings.error') })
         } finally {
@@ -498,7 +457,7 @@ export default function SettingsPage() {
                                 className="input-premium"
                                 value={settings.resend_from_email}
                                 onChange={(e) => set('resend_from_email', e.target.value)}
-                                placeholder="noreply@dinkyrka.se"
+                                placeholder="kvitto@osternsgamlakyrka.se"
                             />
                             <p className="text-xs text-muted-foreground">
                                 {language === 'sv' ? 'Måste vara en verifierad domän i Resend.' : 'Must be a verified domain in Resend.'}

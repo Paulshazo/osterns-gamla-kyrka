@@ -1,17 +1,24 @@
 "use server"
 
 import { createClient } from "@/utils/supabase/server"
+import { getActiveOrgId } from "@/app/actions/org"
 
 // --------------------------------------------------------
-// Get Resend config from app_settings
+// Get Resend config from app_settings (per organisation)
 // --------------------------------------------------------
-async function getResendConfig() {
+async function getOrgSettings() {
     const supabase = await createClient()
-    const { data } = await supabase
+    const orgId = await getActiveOrgId()
+    let query = supabase
         .from('app_settings')
-        .select('resend_api_key, resend_from_email, resend_from_name')
-        .eq('id', 1)
-        .single()
+        .select('resend_api_key, resend_from_email, resend_from_name, admin_title')
+    query = orgId ? query.eq('organisation_id', orgId) : query.eq('id', 1)
+    const { data } = await query.maybeSingle()
+    return data
+}
+
+async function getResendConfig() {
+    const data = await getOrgSettings()
 
     if (!data?.resend_api_key || !data?.resend_from_email) {
         throw new Error('Resend är inte konfigurerat. Gå till Inställningar och lägg in din Resend API-nyckel.')
@@ -20,6 +27,7 @@ async function getResendConfig() {
     return {
         apiKey: data.resend_api_key,
         from: `${data.resend_from_name ?? 'Kyrkoregistret'} <${data.resend_from_email}>`,
+        orgName: data.admin_title ?? 'Kyrkoregistret',
     }
 }
 
@@ -157,14 +165,7 @@ export async function sendPaymentReceiptAction(params: {
     try {
         const supabase = await createClient()
         const cfg = await getResendConfig()
-
-        // Get org name from settings
-        const { data: settings } = await supabase
-            .from('app_settings')
-            .select('admin_title')
-            .eq('id', 1)
-            .single()
-        const orgName = settings?.admin_title ?? 'Kyrkoregistret'
+        const orgName = cfg.orgName
 
         const date = new Date().toLocaleDateString('sv-SE')
         const html = buildReceiptHTML({
@@ -229,13 +230,7 @@ export async function sendPaymentReminderAction(params: {
     try {
         const supabase = await createClient()
         const cfg = await getResendConfig()
-
-        const { data: settings } = await supabase
-            .from('app_settings')
-            .select('admin_title')
-            .eq('id', 1)
-            .single()
-        const orgName = settings?.admin_title ?? 'Kyrkoregistret'
+        const orgName = cfg.orgName
 
         const html = `
 <!DOCTYPE html>
