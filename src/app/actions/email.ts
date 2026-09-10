@@ -1,25 +1,38 @@
 "use server"
 
+import { cookies } from "next/headers"
 import { createClient } from "@/utils/supabase/server"
 
 // --------------------------------------------------------
-// Get Resend config from app_settings
+// Get Resend config from app_settings for the active organisation
 // --------------------------------------------------------
-async function getResendConfig() {
+async function getActiveOrgSettings(select: string) {
     const supabase = await createClient()
-    const { data } = await supabase
-        .from('app_settings')
-        .select('resend_api_key, resend_from_email, resend_from_name')
-        .eq('id', 1)
-        .single()
+    const orgId = (await cookies()).get('active_org_id')?.value
+
+    let query = supabase.from('app_settings').select(select)
+    query = orgId ? query.eq('organisation_id', orgId) : query.eq('id', 1)
+    const { data } = await query.single()
+    return data
+}
+
+async function getResendConfig() {
+    const data = await getActiveOrgSettings(
+        'resend_api_key, resend_from_email, resend_from_name'
+    ) as {
+        resend_api_key: string | null
+        resend_from_email: string | null
+        resend_from_name: string | null
+    } | null
 
     if (!data?.resend_api_key || !data?.resend_from_email) {
-        throw new Error('Resend är inte konfigurerat. Gå till Inställningar och lägg in din Resend API-nyckel.')
+        throw new Error('Resend är inte konfigurerat. Gå till Inställningar och lägg in din Resend API-nyckel samt kyrkans avsändaradress.')
     }
 
     return {
         apiKey: data.resend_api_key,
         from: `${data.resend_from_name ?? 'Kyrkoregistret'} <${data.resend_from_email}>`,
+        fromEmail: data.resend_from_email,
     }
 }
 
@@ -158,12 +171,7 @@ export async function sendPaymentReceiptAction(params: {
         const supabase = await createClient()
         const cfg = await getResendConfig()
 
-        // Get org name from settings
-        const { data: settings } = await supabase
-            .from('app_settings')
-            .select('admin_title')
-            .eq('id', 1)
-            .single()
+        const settings = await getActiveOrgSettings('admin_title') as { admin_title: string | null } | null
         const orgName = settings?.admin_title ?? 'Kyrkoregistret'
 
         const date = new Date().toLocaleDateString('sv-SE')
@@ -173,7 +181,7 @@ export async function sendPaymentReceiptAction(params: {
             orgName,
         })
 
-        // Send via Resend API
+        // Send via Resend API (from = kyrkans verifierade avsändaradress)
         const res = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: {
@@ -183,6 +191,7 @@ export async function sendPaymentReceiptAction(params: {
             body: JSON.stringify({
                 from: cfg.from,
                 to: [params.recipientEmail],
+                reply_to: cfg.fromEmail,
                 subject: `Betalningskvitto — ${params.familyName} ${date}`,
                 html,
             }),
@@ -227,14 +236,9 @@ export async function sendPaymentReminderAction(params: {
     familyId: string
 }) {
     try {
-        const supabase = await createClient()
         const cfg = await getResendConfig()
 
-        const { data: settings } = await supabase
-            .from('app_settings')
-            .select('admin_title')
-            .eq('id', 1)
-            .single()
+        const settings = await getActiveOrgSettings('admin_title') as { admin_title: string | null } | null
         const orgName = settings?.admin_title ?? 'Kyrkoregistret'
 
         const html = `
@@ -298,6 +302,7 @@ export async function sendPaymentReminderAction(params: {
             body: JSON.stringify({
                 from: cfg.from,
                 to: [params.recipientEmail],
+                reply_to: cfg.fromEmail,
                 subject: `Påminnelse: Betalning förfallen — ${params.familyName}`,
                 html,
             }),
@@ -311,6 +316,7 @@ export async function sendPaymentReminderAction(params: {
         await logEvent('email_sent', 'family', params.familyId, {
             to: params.recipientEmail,
             type: 'reminder',
+            from: cfg.fromEmail,
         })
 
         return { success: true }
