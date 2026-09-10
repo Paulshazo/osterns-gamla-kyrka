@@ -104,6 +104,11 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
                 nextCount = memberships?.length ?? 0
 
+                if (!orgId && memberships && memberships.length > 0) {
+                    const admin = memberships.find(m => m.role === 'admin')
+                    orgId = admin?.organisation_id ?? memberships[0].organisation_id
+                }
+
                 if (orgId && memberships) {
                     const mine = memberships.find(m => m.organisation_id === orgId)
                     if (mine) {

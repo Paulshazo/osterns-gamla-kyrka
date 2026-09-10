@@ -59,7 +59,7 @@ export async function setActiveOrganisation(orgId: string) {
     }
 
     cookieStore.set('active_org_id', orgId, {
-        httpOnly: true, secure: true, sameSite: 'lax', path: '/'
+        httpOnly: false, secure: true, sameSite: 'lax', path: '/'
     })
     return { success: true }
 }

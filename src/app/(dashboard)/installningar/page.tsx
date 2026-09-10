@@ -96,6 +96,7 @@ export default function SettingsPage() {
         setMessage(null)
         try {
             const result = await saveAppSettingsAction({
+                organisationId:    activeOrgId,
                 admin_title:       settings.admin_title,
                 admin_logo_url:    settings.admin_logo_url,
                 admin_logo_size:   settings.admin_logo_size,
@@ -483,7 +484,16 @@ export default function SettingsPage() {
                 </SectionCard>
 
                 {/* Save */}
-                <div className="flex justify-end pb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-6">
+                    {message && (
+                        <div className={`p-3 rounded-[10px] text-sm border font-medium flex-1 ${
+                            message.type === 'success'
+                                ? 'bg-green-50 text-green-700 border-green-200'
+                                : 'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                            {message.text}
+                        </div>
+                    )}
                     <button
                         type="submit"
                         disabled={saving}

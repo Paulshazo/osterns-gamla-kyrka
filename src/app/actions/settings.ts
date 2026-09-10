@@ -1,49 +1,46 @@
 "use server"
 
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createClient } from "@/utils/supabase/server"
 import { logAuditAction } from './audit'
 import { getActiveOrgId } from './org'
-import { supabaseAnonKey, supabaseUrl } from '@/utils/supabase/config'
 
-async function getAuthClient() {
-    const cookieStore = await cookies()
-    return createServerClient(supabaseUrl, supabaseAnonKey, {
-        cookies: {
-            getAll() { return cookieStore.getAll() },
-            setAll(cookiesToSet) {
-                try {
-                    cookiesToSet.forEach(({ name, value, options }) =>
-                        cookieStore.set(name, value, options)
-                    )
-                } catch { /* ignore in Server Actions */ }
-            },
-        },
-    })
+async function resolveOrgId(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    userId: string,
+    clientOrgId?: string | null,
+) {
+    if (clientOrgId) return clientOrgId
+    const fromCookie = await getActiveOrgId()
+    if (fromCookie) return fromCookie
+
+    const { data: memberships } = await supabase
+        .from('organisation_members')
+        .select('organisation_id, role')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+
+    if (!memberships?.length) return null
+    const admin = memberships.find(m => m.role === 'admin')
+    return admin?.organisation_id ?? memberships[0].organisation_id
 }
 
-async function assertCanManageSettings() {
-    const supabase = await getAuthClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) throw new Error('Ej inloggad')
-
-    const orgId = await getActiveOrgId()
-    if (!orgId) throw new Error('Välj en organisation innan du sparar inställningar.')
-
+async function assertCanManageSettings(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    userId: string,
+    orgId: string,
+) {
     const { data: profile } = await supabase
         .from('user_profiles')
         .select('role')
-        .eq('id', user.id)
+        .eq('id', userId)
         .single()
 
-    if (profile?.role === 'superadmin' || profile?.role === 'admin') {
-        return { supabase, orgId }
-    }
+    if (profile?.role === 'superadmin' || profile?.role === 'admin') return
 
     const { data: membership } = await supabase
         .from('organisation_members')
         .select('role')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('organisation_id', orgId)
         .eq('is_active', true)
         .maybeSingle()
@@ -51,11 +48,10 @@ async function assertCanManageSettings() {
     if (membership?.role !== 'admin') {
         throw new Error('Du måste vara admin för att ändra inställningar.')
     }
-
-    return { supabase, orgId }
 }
 
 export async function saveAppSettingsAction(input: {
+    organisationId?: string | null
     admin_title: string
     admin_logo_url: string
     admin_logo_size: number
@@ -68,9 +64,16 @@ export async function saveAppSettingsAction(input: {
     resend_from_name: string
 }) {
     try {
-        const { supabase, orgId } = await assertCanManageSettings()
+        const supabase = await createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('Ej inloggad')
 
-        const payload = {
+        const orgId = await resolveOrgId(supabase, user.id, input.organisationId)
+        if (!orgId) throw new Error('Välj en organisation innan du sparar inställningar.')
+
+        await assertCanManageSettings(supabase, user.id, orgId)
+
+        const fields = {
             organisation_id: orgId,
             admin_title: input.admin_title,
             admin_logo_url: input.admin_logo_url || null,
@@ -79,33 +82,50 @@ export async function saveAppSettingsAction(input: {
             login_subtitle: input.login_subtitle,
             login_logo_url: input.login_logo_url || null,
             login_logo_size: input.login_logo_size,
-            resend_api_key: input.resend_api_key || null,
-            resend_from_email: input.resend_from_email || null,
-            resend_from_name: input.resend_from_name || 'Kyrkoregistret',
+            resend_api_key: input.resend_api_key.trim() || null,
+            resend_from_email: input.resend_from_email.trim() || null,
+            resend_from_name: input.resend_from_name.trim() || 'Kyrkoregistret',
             updated_at: new Date().toISOString(),
         }
 
-        const { data: updated, error: updateError } = await supabase
+        const { data: byOrg, error: byOrgError } = await supabase
             .from('app_settings')
-            .update(payload)
+            .update(fields)
             .eq('organisation_id', orgId)
             .select('id')
-
-        if (updateError) throw updateError
-
-        if (!updated || updated.length === 0) {
-            const { error: insertError } = await supabase
-                .from('app_settings')
-                .insert(payload)
-            if (insertError) throw insertError
+        if (byOrgError) throw byOrgError
+        if (byOrg?.length) {
+            await logAuditAction('settings', 'settings', orgId, {
+                admin_title: input.admin_title,
+                resend_from_email: fields.resend_from_email,
+            })
+            return { success: true, organisationId: orgId }
         }
+
+        const { data: byId, error: byIdError } = await supabase
+            .from('app_settings')
+            .update(fields)
+            .eq('id', 1)
+            .select('id')
+        if (byIdError) throw byIdError
+        if (byId?.length) {
+            await logAuditAction('settings', 'settings', orgId, {
+                admin_title: input.admin_title,
+                resend_from_email: fields.resend_from_email,
+            })
+            return { success: true, organisationId: orgId }
+        }
+
+        const { error: insertError } = await supabase
+            .from('app_settings')
+            .insert(fields)
+        if (insertError) throw insertError
 
         await logAuditAction('settings', 'settings', orgId, {
             admin_title: input.admin_title,
-            resend_from_email: input.resend_from_email || null,
+            resend_from_email: fields.resend_from_email,
         })
-
-        return { success: true }
+        return { success: true, organisationId: orgId }
     } catch (error: any) {
         return { success: false, error: error.message ?? 'Kunde inte spara inställningar.' }
     }
