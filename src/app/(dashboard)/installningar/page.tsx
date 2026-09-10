@@ -101,7 +101,7 @@ export default function SettingsPage() {
         setSaving(true)
         setMessage(null)
         try {
-            // Step 1: Save base settings (always works)
+            // Step 1: Save base settings for the active organisation
             const basePayload: Record<string, any> = {
                 admin_title:     settings.admin_title,
                 admin_logo_url:  settings.admin_logo_url,
@@ -112,12 +112,21 @@ export default function SettingsPage() {
                 login_logo_size: settings.login_logo_size,
                 updated_at:      new Date().toISOString(),
             }
+
+            let baseError
             if (activeOrgId) {
-                basePayload.organisation_id = activeOrgId
+                // Update existing org row (created when organisation was set up)
+                const result = await supabase
+                    .from('app_settings')
+                    .update(basePayload)
+                    .eq('organisation_id', activeOrgId)
+                baseError = result.error
             } else {
-                basePayload.id = 1
+                const result = await supabase
+                    .from('app_settings')
+                    .upsert({ ...basePayload, id: 1 })
+                baseError = result.error
             }
-            const { error: baseError } = await supabase.from('app_settings').upsert(basePayload)
             if (baseError) throw baseError
 
             // Step 2: Save Resend settings only if columns exist
@@ -128,12 +137,21 @@ export default function SettingsPage() {
                     resend_from_name:  settings.resend_from_name  || 'Kyrkoregistret',
                     updated_at:        new Date().toISOString(),
                 }
+
+                let resendError
                 if (activeOrgId) {
-                    resendPayload.organisation_id = activeOrgId
+                    const result = await supabase
+                        .from('app_settings')
+                        .update(resendPayload)
+                        .eq('organisation_id', activeOrgId)
+                    resendError = result.error
                 } else {
-                    resendPayload.id = 1
+                    const result = await supabase
+                        .from('app_settings')
+                        .upsert({ ...resendPayload, id: 1 })
+                    resendError = result.error
                 }
-                const { error: resendError } = await supabase.from('app_settings').upsert(resendPayload)
+
                 if (resendError) {
                     // Columns still missing — show migration hint
                     setMessage({
@@ -147,7 +165,7 @@ export default function SettingsPage() {
                 }
             }
 
-            logAuditAction('settings', 'settings', '1', { admin_title: settings.admin_title })
+            logAuditAction('settings', 'settings', activeOrgId ?? '1', { admin_title: settings.admin_title })
             setMessage({ type: 'success', text: t('page.settings.saved') })
             setTimeout(() => window.location.reload(), 1200)
         } catch (err: any) {
@@ -455,8 +473,8 @@ export default function SettingsPage() {
                         </p>
                         <p className="text-xs mt-1" style={{ color: '#78350F' }}>
                             {language === 'sv'
-                                ? 'Systemet använder Resend för att skicka kvitton och påminnelser. Hämta din API-nyckel på resend.com/api-keys och välj en avsändardress från din verifierade domän.'
-                                : 'The system uses Resend to send receipts and reminders. Get your API key at resend.com/api-keys and choose a sender from your verified domain.'}
+                                ? 'Systemet använder Resend för att skicka kvitton och påminnelser från kyrkans e-postadress. Skapa konto på resend.com, verifiera kyrkans domän (DNS), hämta API-nyckel och ange t.ex. kansli@erkyrka.se som avsändare.'
+                                : 'The system uses Resend to send receipts and reminders from the church email. Create an account at resend.com, verify the church domain (DNS), get an API key, and set e.g. office@yourchurch.se as sender.'}
                         </p>
                     </div>
 
@@ -498,7 +516,7 @@ export default function SettingsPage() {
                                 className="input-premium"
                                 value={settings.resend_from_email}
                                 onChange={(e) => set('resend_from_email', e.target.value)}
-                                placeholder="noreply@dinkyrka.se"
+                                placeholder="kansli@dinkyrka.se"
                             />
                             <p className="text-xs text-muted-foreground">
                                 {language === 'sv' ? 'Måste vara en verifierad domän i Resend.' : 'Must be a verified domain in Resend.'}
