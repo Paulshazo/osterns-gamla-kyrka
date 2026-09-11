@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { useLanguage } from "@/components/language-provider"
-import { Search, ScrollText, RefreshCw, User, LogIn, LogOut, Plus, Edit2, Trash2, Download, Mail, Shield } from "lucide-react"
+import { Search, ScrollText, RefreshCw, User, LogIn, LogOut, Plus, Edit2, Trash2, Download, Mail, Shield, KeyRound } from "lucide-react"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { format } from "date-fns"
 import { sv, enUS } from "date-fns/locale"
@@ -29,6 +29,7 @@ const ACTION_CONFIG: Record<string, { label_sv: string; label_en: string; icon: 
     export:      { label_sv: 'Export',       label_en: 'Export',       icon: <Download size={13} />, color: '#8B6914' },
     email_sent:  { label_sv: 'E-post',       label_en: 'Email sent',   icon: <Mail size={13} />,     color: '#6B4CA8' },
     settings:    { label_sv: 'Inställning',  label_en: 'Setting',      icon: <Shield size={13} />,   color: '#1A1A1A' },
+    password_changed: { label_sv: 'Lösenord', label_en: 'Password',    icon: <KeyRound size={13} />, color: '#1A1A1A' },
 }
 
 function ActionBadge({ action, language }: { action: string; language: string }) {

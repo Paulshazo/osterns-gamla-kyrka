@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
-import { Save, Loader2, Mail, Image as ImageIcon, Shield, Eye, EyeOff, Type } from "lucide-react"
+import { Save, Loader2, Mail, Image as ImageIcon, Eye, EyeOff, Type, KeyRound } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
-import { saveAppSettingsAction } from "@/app/actions/settings"
+import { saveAppSettingsAction, changePasswordAction } from "@/app/actions/settings"
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
 const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
@@ -15,11 +15,19 @@ export default function SettingsPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId, canManageUsers, loading: orgLoading } = useActiveOrg()
+    const { activeOrgId, isSuperAdmin, loading: orgLoading } = useActiveOrg()
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
+    const [changingPassword, setChangingPassword] = useState(false)
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const [showApiKey, setShowApiKey] = useState(false)
+    const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+    const [showNewPassword, setShowNewPassword] = useState(false)
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+    const [currentPassword, setCurrentPassword] = useState("")
+    const [newPassword, setNewPassword] = useState("")
+    const [confirmPassword, setConfirmPassword] = useState("")
 
     const [settings, setSettings] = useState({
         admin_title:       "",
@@ -41,6 +49,10 @@ export default function SettingsPage() {
 
     useEffect(() => {
         if (!supabase || orgLoading) return
+        if (!isSuperAdmin) {
+            setLoading(false)
+            return
+        }
         const init = async () => {
             setLoading(true)
             try {
@@ -81,14 +93,14 @@ export default function SettingsPage() {
             setLoading(false)
         }
         init()
-    }, [supabase, activeOrgId, orgLoading])
+    }, [supabase, activeOrgId, orgLoading, isSuperAdmin])
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!canManageUsers) {
+        if (!isSuperAdmin) {
             setMessage({
                 type: 'error',
-                text: language === 'sv' ? 'Du måste vara admin för att spara.' : 'You must be admin to save.',
+                text: language === 'sv' ? 'Endast superadmin kan spara systeminställningar.' : 'Only super admin can save system settings.',
             })
             return
         }
@@ -117,8 +129,37 @@ export default function SettingsPage() {
         }
     }
 
+    const handleChangePassword = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setPasswordMessage(null)
+        if (newPassword !== confirmPassword) {
+            setPasswordMessage({ type: 'error', text: t('page.settings.password_mismatch') })
+            return
+        }
+        setChangingPassword(true)
+        try {
+            const result = await changePasswordAction({
+                currentPassword,
+                newPassword,
+                confirmPassword,
+            })
+            if (!result.success) throw new Error(result.error)
+            setCurrentPassword("")
+            setNewPassword("")
+            setConfirmPassword("")
+            setPasswordMessage({ type: 'success', text: t('page.settings.password_saved') })
+        } catch (err: any) {
+            setPasswordMessage({
+                type: 'error',
+                text: err.message ?? (language === 'sv' ? 'Kunde inte byta lösenord.' : 'Could not change password.'),
+            })
+        } finally {
+            setChangingPassword(false)
+        }
+    }
+
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: 'admin' | 'login') => {
-        if (!supabase) return
+        if (!supabase || !isSuperAdmin) return
         const file = event.target.files?.[0]
         if (!file) return
 
@@ -153,35 +194,12 @@ export default function SettingsPage() {
         }
     }
 
-    if (loading) {
+    if (orgLoading || loading) {
         return (
             <div className="flex h-[50vh] items-center justify-center">
                 <div className="flex items-center gap-3 text-muted-foreground">
                     <Loader2 className="animate-spin" size={20} />
                     {t('common.loading')}
-                </div>
-            </div>
-        )
-    }
-
-    if (orgLoading) {
-        return (
-            <div className="flex h-[50vh] items-center justify-center">
-                <div className="flex items-center gap-3 text-muted-foreground">
-                    <Loader2 className="animate-spin" size={20} />
-                    {t('common.loading')}
-                </div>
-            </div>
-        )
-    }
-
-    if (!canManageUsers) {
-        return (
-            <div className="flex items-center justify-center h-[50vh]">
-                <div className="text-center">
-                    <Shield size={48} style={{ color: '#DDD8CE' }} className="mx-auto mb-4" />
-                    <h2 className="text-xl font-bold">{language === 'sv' ? 'Åtkomst nekad' : 'Access denied'}</h2>
-                    <p className="text-muted-foreground mt-2">{language === 'sv' ? 'Du måste vara admin för att ändra inställningar.' : 'You must be admin to change settings.'}</p>
                 </div>
             </div>
         )
@@ -193,11 +211,14 @@ export default function SettingsPage() {
         <div className="max-w-4xl">
             <div className="page-header">
                 <h1 className="text-2xl font-bold tracking-tight">{t('page.settings.title')}</h1>
-                <p className="text-muted-foreground text-sm mt-1">{t('page.settings.desc')}</p>
+                <p className="text-muted-foreground text-sm mt-1">
+                    {isSuperAdmin ? t('page.settings.desc') : t('page.settings.desc_password')}
+                </p>
             </div>
 
+            <div className="space-y-6">
+                {isSuperAdmin && (
             <form onSubmit={handleSave} className="space-y-6">
-                {/* DB migration warning — show if Resend columns are missing */}
                 {!hasResendColumns && (
                     <div className="p-4 rounded-[10px] border text-sm" style={{ background: '#FFF8EE', borderColor: '#FCD34D', color: '#92400E' }}>
                         <p className="font-bold mb-1">
@@ -508,6 +529,119 @@ export default function SettingsPage() {
                     </button>
                 </div>
             </form>
+                )}
+
+                <form onSubmit={handleChangePassword} className="space-y-6">
+                    <SectionCard icon={<KeyRound size={16} />} title={t('page.settings.password_section')}>
+                        <p className="text-sm text-muted-foreground mb-5">
+                            {t('page.settings.password_hint')}
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1.5 md:col-span-2">
+                                <label className="text-sm font-semibold" htmlFor="current-password">
+                                    {t('page.settings.password_current')}
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        id="current-password"
+                                        type={showCurrentPassword ? 'text' : 'password'}
+                                        className="input-premium pr-10"
+                                        value={currentPassword}
+                                        onChange={(e) => setCurrentPassword(e.target.value)}
+                                        autoComplete="current-password"
+                                        required
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        aria-label={language === 'sv' ? 'Visa eller dölj lösenord' : 'Show or hide password'}
+                                    >
+                                        {showCurrentPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-semibold" htmlFor="new-password">
+                                    {t('page.settings.password_new')}
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        id="new-password"
+                                        type={showNewPassword ? 'text' : 'password'}
+                                        className="input-premium pr-10"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                        autoComplete="new-password"
+                                        required
+                                        minLength={8}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewPassword(!showNewPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        aria-label={language === 'sv' ? 'Visa eller dölj lösenord' : 'Show or hide password'}
+                                    >
+                                        {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-semibold" htmlFor="confirm-password">
+                                    {t('page.settings.password_repeat')}
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        id="confirm-password"
+                                        type={showConfirmPassword ? 'text' : 'password'}
+                                        className="input-premium pr-10"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        autoComplete="new-password"
+                                        required
+                                        minLength={8}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                        aria-label={language === 'sv' ? 'Visa eller dölj lösenord' : 'Show or hide password'}
+                                    >
+                                        {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                </div>
+                                {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+                                    <p className="text-xs text-red-600">{t('page.settings.password_mismatch')}</p>
+                                )}
+                            </div>
+                        </div>
+                    </SectionCard>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pb-6">
+                        {passwordMessage && (
+                            <div className={`p-3 rounded-[10px] text-sm border font-medium flex-1 ${
+                                passwordMessage.type === 'success'
+                                    ? 'bg-green-50 text-green-700 border-green-200'
+                                    : 'bg-red-50 text-red-700 border-red-200'
+                            }`}>
+                                {passwordMessage.text}
+                            </div>
+                        )}
+                        <button
+                            type="submit"
+                            disabled={changingPassword}
+                            className="flex items-center gap-2 px-6 py-3 rounded-[10px] font-semibold text-primary-foreground disabled:opacity-60 transition-all shadow-sm"
+                            style={{ background: changingPassword ? '#6B6355' : '#1A1A1A' }}
+                        >
+                            {changingPassword ? (
+                                <><Loader2 className="animate-spin" size={16} /> {t('page.settings.password_saving')}</>
+                            ) : (
+                                <><KeyRound size={16} /> {t('page.settings.password_save')}</>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     )
 }

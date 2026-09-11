@@ -79,7 +79,7 @@ export async function updateSession(request: NextRequest) {
                     isOrgAdmin = membership?.role === 'admin'
                 }
 
-                const adminOnlyRoutes = ['/installningar', '/anvandare', '/loggar']
+                const adminOnlyRoutes = ['/anvandare', '/loggar']
                 if (role !== 'superadmin' && !isOrgAdmin) {
                     if (adminOnlyRoutes.some(route => pathname.startsWith(route))) {
                         const redirectUrl = request.nextUrl.clone()

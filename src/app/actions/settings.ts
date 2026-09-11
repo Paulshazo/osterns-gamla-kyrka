@@ -24,10 +24,9 @@ async function resolveOrgId(
     return admin?.organisation_id ?? memberships[0].organisation_id
 }
 
-async function assertCanManageSettings(
+async function assertSuperAdmin(
     supabase: Awaited<ReturnType<typeof createClient>>,
     userId: string,
-    orgId: string,
 ) {
     const { data: profile } = await supabase
         .from('user_profiles')
@@ -35,18 +34,8 @@ async function assertCanManageSettings(
         .eq('id', userId)
         .single()
 
-    if (profile?.role === 'superadmin' || profile?.role === 'admin') return
-
-    const { data: membership } = await supabase
-        .from('organisation_members')
-        .select('role')
-        .eq('user_id', userId)
-        .eq('organisation_id', orgId)
-        .eq('is_active', true)
-        .maybeSingle()
-
-    if (membership?.role !== 'admin') {
-        throw new Error('Du måste vara admin för att ändra inställningar.')
+    if (profile?.role !== 'superadmin') {
+        throw new Error('Endast superadmin kan ändra systeminställningar.')
     }
 }
 
@@ -71,7 +60,7 @@ export async function saveAppSettingsAction(input: {
         const orgId = await resolveOrgId(supabase, user.id, input.organisationId)
         if (!orgId) throw new Error('Välj en organisation innan du sparar inställningar.')
 
-        await assertCanManageSettings(supabase, user.id, orgId)
+        await assertSuperAdmin(supabase, user.id)
 
         const fields = {
             organisation_id: orgId,
@@ -128,5 +117,52 @@ export async function saveAppSettingsAction(input: {
         return { success: true, organisationId: orgId }
     } catch (error: any) {
         return { success: false, error: error.message ?? 'Kunde inte spara inställningar.' }
+    }
+}
+
+export async function changePasswordAction(input: {
+    currentPassword: string
+    newPassword: string
+    confirmPassword: string
+}) {
+    try {
+        const supabase = await createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user?.email) throw new Error('Ej inloggad')
+
+        const currentPassword = input.currentPassword
+        const newPassword = input.newPassword
+        const confirmPassword = input.confirmPassword
+
+        if (!currentPassword || !newPassword || !confirmPassword) {
+            throw new Error('Fyll i alla lösenordsfält.')
+        }
+        if (newPassword.length < 8) {
+            throw new Error('Det nya lösenordet måste vara minst 8 tecken.')
+        }
+        if (newPassword !== confirmPassword) {
+            throw new Error('Det nya lösenordet och upprepningen matchar inte.')
+        }
+        if (newPassword === currentPassword) {
+            throw new Error('Det nya lösenordet måste skilja sig från det nuvarande.')
+        }
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: currentPassword,
+        })
+        if (signInError) {
+            throw new Error('Felaktigt nuvarande lösenord.')
+        }
+
+        const { error: updateError } = await supabase.auth.updateUser({
+            password: newPassword,
+        })
+        if (updateError) throw updateError
+
+        await logAuditAction('password_changed', 'auth', user.id, {})
+        return { success: true }
+    } catch (error: any) {
+        return { success: false, error: error.message ?? 'Kunde inte byta lösenord.' }
     }
 }

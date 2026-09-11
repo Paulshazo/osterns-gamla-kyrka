@@ -101,7 +101,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     }
 
     const isAllowed = (item: typeof navItems[0]) => {
-        if (item.permission === 'settings' || item.permission === 'users') return canManageUsers
+        if (item.permission === 'users') return canManageUsers
         return true
     }
 
