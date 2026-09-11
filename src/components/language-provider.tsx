@@ -221,6 +221,7 @@ const translations = {
 
         // Payment form
         "form.payment.error_select_family":"Välj en familj.",
+        "form.payment.error_amount":      "Ange hur mycket som är betalt.",
         "form.payment.error_save":        "Ett fel uppstod.",
         "form.payment.edit_title":        "Redigera betalning",
         "form.payment.add_title":         "Registrera ny betalning",
@@ -230,7 +231,7 @@ const translations = {
         "form.payment.est_yearly":        "Årsavgift",
         "form.payment.paid_amount":       "Betalad summa (kr)",
         "form.payment.period_title":      "Beräknad period",
-        "form.payment.valid_auto":        "Datumet räknas automatiskt från beloppet. Du kan ändra det manuellt.",
+        "form.payment.valid_auto":        "Datumet räknas automatiskt från beloppet och kan inte ändras här.",
         "form.payment.paid_via":          "Betalat via",
         "form.payment.swish":             "Swish",
         "form.payment.bank_transfer":     "Banköverföring",
@@ -516,6 +517,7 @@ const translations = {
 
         // Payment form
         "form.payment.error_select_family":"Please select a family.",
+        "form.payment.error_amount":      "Enter the amount paid.",
         "form.payment.error_save":        "An error occurred.",
         "form.payment.edit_title":        "Edit payment",
         "form.payment.add_title":         "Register new payment",
@@ -525,7 +527,7 @@ const translations = {
         "form.payment.est_yearly":        "Annual fee",
         "form.payment.paid_amount":       "Paid amount (SEK)",
         "form.payment.period_title":      "Calculated period",
-        "form.payment.valid_auto":        "The date is calculated from the amount. You can still change it.",
+        "form.payment.valid_auto":        "The date is calculated from the amount and cannot be changed here.",
         "form.payment.paid_via":          "Paid via",
         "form.payment.swish":             "Swish",
         "form.payment.bank_transfer":     "Bank Transfer",

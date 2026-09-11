@@ -42,8 +42,8 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         familj_id:            initialData?.familj_id ?? selectedFamilyId ?? "",
         total_manads_avgift:  initialData?.total_manads_avgift ?? 0,
         total_ars_avgift:     initialData?.total_ars_avgift ?? 0,
-        summan:               initialData?.summan ?? 0,
-        betalat_till_datum:   initialData?.betalat_till_datum ?? "",
+        summan:               '' as string,
+        betalat_till_datum:   '',
         betalat_via:          initialData?.betalat_via ?? "Swish",
         betalnings_referens:  initialData?.betalnings_referens ?? "",
     })
@@ -74,7 +74,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         }
     }, [formData.familj_id, families])
 
-    const loadFamilyPeriod = async (familjId: string, resetAmount = true) => {
+    const loadFamilyPeriod = async (familjId: string) => {
         if (!supabase || !familjId) return
         try {
             const [{ data: family }, { data: children }, { data: latestPayments }] = await Promise.all([
@@ -98,31 +98,21 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             setSelectedFamilyData(family)
             if (family.mail && !receiptEmail) setReceiptEmail(family.mail)
 
-            setFormData(prev => {
-                const amount = resetAmount || !prev.summan ? monthly : prev.summan
-                const period = calculatePaymentPeriod({
-                    amount,
-                    monthlyFee: monthly,
-                    previousUntil: previous,
-                    adults: counts.adults,
-                    children: counts.children,
-                })
-                return {
-                    ...prev,
-                    familj_id: familjId,
-                    total_manads_avgift: monthly,
-                    total_ars_avgift: period.annualFee,
-                    summan: amount,
-                    betalat_till_datum: period.validUntilIso,
-                }
-            })
+            setFormData(prev => ({
+                ...prev,
+                familj_id: familjId,
+                total_manads_avgift: monthly,
+                total_ars_avgift: monthly * 12,
+                summan: '',
+                betalat_till_datum: '',
+            }))
         } catch { /* ignore */ }
     }
 
     useEffect(() => {
         const familyId = formData.familj_id
         if (!familyId || !supabase) return
-        loadFamilyPeriod(familyId, !formData.id && !initialData?.summan)
+        loadFamilyPeriod(familyId)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [supabase, formData.familj_id])
 
@@ -131,7 +121,19 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         setFormData(prev => ({ ...prev, familj_id: id }))
     }
 
-    const applyPeriod = (amount: number, monthlyFee: number) => {
+    const paidAmount = Number(formData.summan)
+    const hasPaidAmount = formData.summan.trim() !== '' && paidAmount > 0
+
+    const applyPeriod = (amountText: string, monthlyFee: number) => {
+        const amount = Number(amountText)
+        if (!amountText.trim() || !(amount > 0) || monthlyFee <= 0) {
+            return {
+                total_manads_avgift: monthlyFee,
+                total_ars_avgift: monthlyFee * 12,
+                summan: amountText,
+                betalat_till_datum: '',
+            }
+        }
         const period = calculatePaymentPeriod({
             amount,
             monthlyFee,
@@ -142,13 +144,13 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         return {
             total_manads_avgift: monthlyFee,
             total_ars_avgift: period.annualFee,
-            summan: amount,
+            summan: amountText,
             betalat_till_datum: period.validUntilIso,
         }
     }
 
     const periodPreview = calculatePaymentPeriod({
-        amount: formData.summan,
+        amount: hasPaidAmount ? paidAmount : 0,
         monthlyFee: formData.total_manads_avgift,
         previousUntil: previousPaidUntil,
         adults: memberCounts.adults,
@@ -165,6 +167,18 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             setError(t('form.payment.error_select_family'))
             return
         }
+        if (!hasPaidAmount) {
+            setError(t('form.payment.error_amount'))
+            return
+        }
+        const period = calculatePaymentPeriod({
+            amount: paidAmount,
+            monthlyFee: formData.total_manads_avgift,
+            previousUntil: previousPaidUntil,
+            adults: memberCounts.adults,
+            children: memberCounts.children,
+        })
+        const validUntil = period.validUntilIso
         setLoading(true)
         setError(null)
         try {
@@ -177,8 +191,8 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                         familj_id: formData.familj_id,
                         total_manads_avgift: formData.total_manads_avgift,
                         total_ars_avgift: formData.total_ars_avgift,
-                        summan: formData.summan,
-                        betalat_till_datum: formData.betalat_till_datum,
+                        summan: paidAmount,
+                        betalat_till_datum: validUntil,
                         betalat_via: formData.betalat_via,
                         betalnings_referens: formData.betalnings_referens,
                         updated_at: new Date().toISOString(),
@@ -188,7 +202,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                 newPaymentId = formData.id
                 logAuditAction('update', 'payment', String(formData.id), {
                     familj_id: formData.familj_id,
-                    summan: formData.summan,
+                    summan: paidAmount,
                     betalat_via: formData.betalat_via,
                 })
             } else {
@@ -198,8 +212,8 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                         familj_id: formData.familj_id,
                         total_manads_avgift: formData.total_manads_avgift,
                         total_ars_avgift: formData.total_ars_avgift,
-                        summan: formData.summan,
-                        betalat_till_datum: formData.betalat_till_datum,
+                        summan: paidAmount,
+                        betalat_till_datum: validUntil,
                         betalat_via: formData.betalat_via,
                         betalnings_referens: formData.betalnings_referens,
                         organisation_id: activeOrgId,
@@ -209,7 +223,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                 newPaymentId = data?.[0]?.id ?? null
                 logAuditAction('create', 'payment', String(newPaymentId ?? ''), {
                     familj_id: formData.familj_id,
-                    summan: formData.summan,
+                    summan: paidAmount,
                     betalat_via: formData.betalat_via,
                 })
             }
@@ -223,9 +237,9 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                     familyName: selectedFamilyData.familje_namn,
                     makeNamn: selectedFamilyData.make_namn ?? '',
                     hustru_namn: selectedFamilyData.hustru_namn ?? null,
-                    amount: formData.summan,
+                    amount: paidAmount,
                     paidVia: formData.betalat_via,
-                    validUntil: formData.betalat_till_datum,
+                    validUntil,
                     reference: formData.betalnings_referens || null,
                     betalningId: newPaymentId,
                 })
@@ -285,26 +299,23 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                             <div className="space-y-1.5">
                                 <label className="text-sm font-semibold text-muted-foreground">{t('form.payment.est_monthly')}</label>
                                 <input
-                                    type="number"
+                                    type="text"
+                                    readOnly
+                                    tabIndex={-1}
                                     className="input-premium"
-                                    value={formData.total_manads_avgift}
-                                    onChange={(e) => {
-                                        const monthly = Number(e.target.value) || 0
-                                        setFormData(prev => ({ ...prev, ...applyPeriod(prev.summan, monthly) }))
-                                    }}
+                                    style={{ background: '#F7F3EC', color: '#6B6355' }}
+                                    value={formData.total_manads_avgift ? `${formData.total_manads_avgift} kr` : ''}
                                 />
                             </div>
                             <div className="space-y-1.5">
                                 <label className="text-sm font-semibold text-muted-foreground">{t('form.payment.est_yearly')}</label>
                                 <input
-                                    type="number"
+                                    type="text"
+                                    readOnly
+                                    tabIndex={-1}
                                     className="input-premium"
-                                    value={formData.total_ars_avgift}
-                                    onChange={(e) => {
-                                        const yearly = Number(e.target.value) || 0
-                                        const monthly = Math.round(yearly / 12)
-                                        setFormData(prev => ({ ...prev, ...applyPeriod(prev.summan, monthly) }))
-                                    }}
+                                    style={{ background: '#F7F3EC', color: '#6B6355' }}
+                                    value={formData.total_ars_avgift ? `${formData.total_ars_avgift} kr` : ''}
                                 />
                             </div>
                         </div>
@@ -315,12 +326,14 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                                 <label className="text-sm font-semibold">{t('form.payment.paid_amount')}</label>
                                 <input
                                     type="number"
+                                    min={1}
                                     className="input-premium"
                                     required
                                     value={formData.summan}
+                                    placeholder=""
                                     onChange={(e) => {
-                                        const amount = Number(e.target.value) || 0
-                                        setFormData(prev => ({ ...prev, ...applyPeriod(amount, prev.total_manads_avgift) }))
+                                        const amountText = e.target.value
+                                        setFormData(prev => ({ ...prev, ...applyPeriod(amountText, prev.total_manads_avgift) }))
                                     }}
                                 />
                             </div>
@@ -345,12 +358,14 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                             <label className="text-sm font-semibold">{t('form.payment.valid_until')}</label>
                             <input
                                 type="date"
+                                readOnly
+                                tabIndex={-1}
                                 className="input-premium"
-                                required
+                                required={hasPaidAmount}
                                 value={formData.betalat_till_datum}
-                                onChange={(e) => setFormData(prev => ({ ...prev, betalat_till_datum: e.target.value }))}
+                                style={{ background: '#F7F3EC', color: '#6B6355' }}
                             />
-                            {formData.familj_id && formData.total_manads_avgift > 0 && (
+                            {formData.familj_id && formData.total_manads_avgift > 0 && hasPaidAmount && (
                                 <div className="rounded-[10px] border p-3 text-xs leading-relaxed" style={{ background: '#FFF8EE', borderColor: '#FCD34D', color: '#78350F' }}>
                                     <p className="font-semibold mb-1">{t('form.payment.period_title')}</p>
                                     <p>{describePaymentPeriod(periodPreview, language === 'sv' ? 'sv' : 'en')}</p>
