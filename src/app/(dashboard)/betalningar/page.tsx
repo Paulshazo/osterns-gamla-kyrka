@@ -15,6 +15,7 @@ import { exportToExcel, exportToPDF } from "@/lib/export"
 import { sendPaymentReminderAction } from "@/app/actions/email"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ReadOnlyBanner } from "@/components/read-only-banner"
+import { familyMonthlyFee } from "@/lib/payment-period"
 
 export default function BetalningarPage() {
     const supabase = useMemo(() => {
@@ -41,18 +42,21 @@ export default function BetalningarPage() {
             .from('familjer')
             .select(`
                 id, familje_namn, make_namn, hustru_namn, mail,
+                make_manads_avgift, hustru_manads_avgift,
                 betalningar(id, total_manads_avgift, total_ars_avgift, summan, betalat_till_datum, betalat_via, betalnings_referens, created_at),
-                barn(manads_avgift)
+                barn(manads_avgift, namn)
             `)
             .eq('organisation_id', activeOrgId)
             .order('familje_namn', { ascending: true })
 
         const processed = (data ?? []).map((f: any) => {
-            const latest = f.betalningar?.sort((a: any, b: any) =>
-                new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-            const adults = (f.make_namn ? 1 : 0) + (f.hustru_namn ? 1 : 0)
-            const childFees = f.barn?.reduce((s: number, b: any) => s + (b.manads_avgift ?? 100), 0) ?? 0
-            const calcMonthly = (adults * 200) + childFees
+            const payments = (f.betalningar ?? []).slice().sort((a: any, b: any) => {
+                const untilDiff = String(b.betalat_till_datum ?? '').localeCompare(String(a.betalat_till_datum ?? ''))
+                if (untilDiff !== 0) return untilDiff
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            })
+            const latest = payments[0]
+            const calcMonthly = familyMonthlyFee(f)
             return {
                 id: f.id,
                 betalning_id: latest?.id ?? null,
@@ -60,8 +64,8 @@ export default function BetalningarPage() {
                 make_namn: f.make_namn,
                 hustru_namn: f.hustru_namn,
                 mail: f.mail ?? null,
-                monthly_fee: latest?.total_manads_avgift ?? calcMonthly,
-                annual_fee: latest?.total_ars_avgift ?? (calcMonthly * 12),
+                monthly_fee: calcMonthly || latest?.total_manads_avgift || 0,
+                annual_fee: (calcMonthly || latest?.total_manads_avgift || 0) * 12,
                 paid_sum: latest?.summan ?? 0,
                 paid_until: latest?.betalat_till_datum ?? null,
                 method: latest?.betalat_via ?? null,
@@ -337,9 +341,6 @@ export default function BetalningarPage() {
                                                                 onClick={() => {
                                                                     setSelectedPayment({
                                                                         familj_id: p.id,
-                                                                        total_manads_avgift: p.monthly_fee,
-                                                                        total_ars_avgift: p.annual_fee,
-                                                                        summan: p.monthly_fee,
                                                                     })
                                                                     setShowForm(true)
                                                                 }}
