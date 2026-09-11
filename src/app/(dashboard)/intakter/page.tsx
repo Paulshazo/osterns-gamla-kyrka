@@ -2,13 +2,24 @@
 
 import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
-import { TrendingUp, Plus, RefreshCcw, FileSpreadsheet, FileText, X } from "lucide-react"
+import { TrendingUp, Plus, RefreshCcw, FileSpreadsheet, FileText, X, Edit2, Trash2 } from "lucide-react"
+import { getISOWeek } from "date-fns"
 import { useLanguage } from "@/components/language-provider"
 import { exportToExcel, exportToPDF } from "@/lib/export"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ReadOnlyBanner } from "@/components/read-only-banner"
+import { logAuditAction } from "@/app/actions/audit"
 
 const months = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
+
+function amountOrEmpty(n: number | null | undefined) {
+    return n ? String(n) : ""
+}
+
+function toAmount(value: string) {
+    const n = Number(value)
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0
+}
 
 export default function IntakterPage() {
     const supabase = useMemo(() => {
@@ -21,6 +32,9 @@ export default function IntakterPage() {
     const [loading, setLoading] = useState(true)
     const [selectedMonth, setSelectedMonth] = useState("Alla")
     const [showForm, setShowForm] = useState(false)
+    const [editing, setEditing] = useState<any | null>(null)
+    const [deleting, setDeleting] = useState<any | null>(null)
+    const [deleteLoading, setDeleteLoading] = useState(false)
     const [exporting, setExporting] = useState(false)
 
     const fetchItems = async () => {
@@ -68,6 +82,25 @@ export default function IntakterPage() {
         } finally { setExporting(false) }
     }
 
+    const confirmDelete = async () => {
+        if (!supabase || !deleting?.id) return
+        setDeleteLoading(true)
+        const { error } = await supabase.from('intakter').delete().eq('id', deleting.id)
+        setDeleteLoading(false)
+        if (error) {
+            alert(error.message)
+            return
+        }
+        logAuditAction('delete', 'income', String(deleting.id), { total: deleting.total })
+        setDeleting(null)
+        fetchItems()
+    }
+
+    const closeForm = () => {
+        setShowForm(false)
+        setEditing(null)
+    }
+
     return (
         <div>
             <div className="page-header flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -90,7 +123,7 @@ export default function IntakterPage() {
                         <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                     </button>
                     {canEditIncome && (
-                        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground" style={{ background: '#1A1A1A' }}>
+                        <button onClick={() => { setEditing(null); setShowForm(true) }} className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold text-primary-foreground" style={{ background: '#1A1A1A' }}>
                             <Plus size={15} /> {t('page.income.new')}
                         </button>
                     )}
@@ -120,12 +153,13 @@ export default function IntakterPage() {
                                         <th>V.</th>
                                         <th>{t('table.total')}</th>
                                         <th>{t('page.income.source')}</th>
+                                        {canEditIncome && <th className="text-right">{language === 'sv' ? 'Åtgärder' : 'Actions'}</th>}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {loading ? (
                                         Array.from({ length: 3 }).map((_, i) => (
-                                            <tr key={i}><td colSpan={4}><div className="h-4 bg-secondary rounded animate-pulse" /></td></tr>
+                                            <tr key={i}><td colSpan={canEditIncome ? 5 : 4}><div className="h-4 bg-secondary rounded animate-pulse" /></td></tr>
                                         ))
                                     ) : items.length > 0 ? (
                                         items.map(item => (
@@ -141,10 +175,30 @@ export default function IntakterPage() {
                                                         || [item.gavor ? `${t('page.income.gifts')} ${item.gavor}` : null, item.ungdomar ? `${t('page.income.youth')} ${item.ungdomar}` : null, item.annat ? `${t('page.income.other')} ${item.annat}` : null].filter(Boolean).join(' · ')
                                                         || '—'}
                                                 </td>
+                                                {canEditIncome && (
+                                                    <td>
+                                                        <div className="flex justify-end gap-1">
+                                                            <button
+                                                                onClick={() => { setEditing(item); setShowForm(true) }}
+                                                                className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                                                                aria-label={t('common.edit')}
+                                                            >
+                                                                <Edit2 size={14} style={{ color: '#C9A84C' }} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setDeleting(item)}
+                                                                className="p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                                                                aria-label={t('common.delete')}
+                                                            >
+                                                                <Trash2 size={14} style={{ color: '#C0392B' }} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                )}
                                             </tr>
                                         ))
                                     ) : (
-                                        <tr><td colSpan={4} className="text-center py-12 text-muted-foreground">{t('page.income.empty')}</td></tr>
+                                        <tr><td colSpan={canEditIncome ? 5 : 4} className="text-center py-12 text-muted-foreground">{t('page.income.empty')}</td></tr>
                                     )}
                                 </tbody>
                             </table>
@@ -197,18 +251,64 @@ export default function IntakterPage() {
             </div>
 
             {showForm && (
-                <IncomeForm supabase={supabase} t={t} language={language} activeOrgId={activeOrgId} onClose={() => setShowForm(false)} onSuccess={() => { setShowForm(false); fetchItems() }} />
+                <IncomeForm
+                    supabase={supabase}
+                    t={t}
+                    activeOrgId={activeOrgId}
+                    initialData={editing}
+                    onClose={closeForm}
+                    onSuccess={() => { closeForm(); fetchItems() }}
+                />
+            )}
+
+            {deleting && (
+                <div className="modal-overlay">
+                    <div className="modal-content max-w-md p-8">
+                        <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+                            <Trash2 size={22} style={{ color: '#C0392B' }} />
+                        </div>
+                        <h2 className="text-lg font-bold text-center mb-2">
+                            {language === 'sv' ? 'Bekräfta radering' : 'Confirm deletion'}
+                        </h2>
+                        <p className="text-sm text-muted-foreground text-center mb-6">
+                            {t('page.income.confirm_delete')}
+                            {deleting.total != null && (
+                                <>
+                                    {' '}
+                                    <strong>{Number(deleting.total).toLocaleString('sv-SE')} kr</strong>
+                                </>
+                            )}
+                        </p>
+                        <div className="flex gap-3">
+                            <button type="button" onClick={() => setDeleting(null)} disabled={deleteLoading}
+                                className="flex-1 py-2.5 rounded-[10px] text-sm font-semibold border border-border hover:bg-secondary transition-colors">
+                                {t('common.cancel')}
+                            </button>
+                            <button type="button" onClick={confirmDelete} disabled={deleteLoading}
+                                className="flex-1 py-2.5 rounded-[10px] text-sm font-semibold text-white disabled:opacity-60"
+                                style={{ background: '#C0392B' }}>
+                                {deleteLoading ? t('common.loading') : t('common.delete')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )
 }
 
-function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: any) {
+function IncomeForm({ supabase, t, activeOrgId, initialData, onClose, onSuccess }: any) {
+    const isEdit = Boolean(initialData?.id)
     const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const [data, setData] = useState({
-        manad: months[new Date().getMonth()],
-        vecka: 1, gavor: 0, ungdomar: 0, annat: 0,
-        rapporterat_av: "", datum: new Date().toISOString().split('T')[0],
+        manad: initialData?.manad ?? months[new Date().getMonth()],
+        vecka: initialData?.vecka ?? getISOWeek(new Date()),
+        gavor: amountOrEmpty(initialData?.gavor),
+        ungdomar: amountOrEmpty(initialData?.ungdomar),
+        annat: amountOrEmpty(initialData?.annat),
+        rapporterat_av: initialData?.rapporterat_av ?? "",
+        datum: initialData?.datum ?? new Date().toISOString().split('T')[0],
     })
     const set = (k: string, v: any) => setData(d => ({ ...d, [k]: v }))
 
@@ -216,23 +316,53 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
         e.preventDefault()
         if (!supabase) return
         if (!activeOrgId) return
+        setError(null)
+        const gavor = toAmount(data.gavor)
+        const ungdomar = toAmount(data.ungdomar)
+        const annat = toAmount(data.annat)
+        const medlems_avgift = Number(initialData?.medlems_avgift) || 0
+        const total = medlems_avgift + gavor + ungdomar + annat
+        if (total <= 0) {
+            setError(t('page.income.error_amount'))
+            return
+        }
         setLoading(true)
-        const total = (Number(data.gavor)||0) + (Number(data.ungdomar)||0) + (Number(data.annat)||0)
-        const { error } = await supabase.from('intakter').insert([{ ...data, medlems_avgift: 0, total, organisation_id: activeOrgId }])
+        const payload = {
+            manad: data.manad,
+            vecka: Number(data.vecka) || 1,
+            gavor,
+            ungdomar,
+            annat,
+            medlems_avgift,
+            total,
+            rapporterat_av: data.rapporterat_av,
+            datum: data.datum,
+            organisation_id: activeOrgId,
+        }
+        const { error: saveError } = isEdit
+            ? await supabase.from('intakter').update(payload).eq('id', initialData.id)
+            : await supabase.from('intakter').insert([payload])
         setLoading(false)
-        if (error) alert(error.message)
-        else onSuccess()
+        if (saveError) {
+            setError(saveError.message)
+            return
+        }
+        logAuditAction(isEdit ? 'update' : 'create', 'income', String(initialData?.id ?? ''), { total })
+        onSuccess()
     }
 
     return (
         <div className="modal-overlay">
             <div className="modal-content max-w-lg">
                 <div className="flex items-center justify-between p-6 border-b border-border">
-                    <h2 className="text-lg font-bold">{t('page.income.new_title')}</h2>
+                    <h2 className="text-lg font-bold">{isEdit ? t('page.income.edit_title') : t('page.income.new_title')}</h2>
                     <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors"><X size={16} /></button>
                 </div>
                 <form onSubmit={handleSubmit}>
                     <div className="p-6 grid grid-cols-2 gap-4">
+                        {error && (
+                            <div className="col-span-2 p-3 bg-red-50 text-red-700 border border-red-200 rounded-[10px] text-sm">{error}</div>
+                        )}
                         <div className="space-y-1.5">
                             <label className="text-sm font-semibold">{t('page.income.month')}</label>
                             <select className="input-premium" value={data.manad} onChange={(e) => set('manad', e.target.value)}>
@@ -241,7 +371,7 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-sm font-semibold">{t('page.income.week')}</label>
-                            <input type="number" className="input-premium" value={data.vecka} onChange={(e) => set('vecka', Number(e.target.value)||1)} />
+                            <input type="number" min={1} max={53} className="input-premium" value={data.vecka} onChange={(e) => set('vecka', Number(e.target.value) || '')} />
                         </div>
                         {[
                             [t('page.income.gifts'), 'gavor'],
@@ -250,7 +380,14 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
                         ].map(([label, key]) => (
                             <div key={key} className="space-y-1.5">
                                 <label className="text-sm font-semibold">{label} (kr)</label>
-                                <input type="number" className="input-premium" value={(data as any)[key]} onChange={(e) => set(key, Number(e.target.value)||0)} />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    className="input-premium"
+                                    value={(data as any)[key]}
+                                    placeholder=""
+                                    onChange={(e) => set(key, e.target.value)}
+                                />
                             </div>
                         ))}
                         <div className="space-y-1.5 col-span-2">
