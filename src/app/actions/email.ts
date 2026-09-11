@@ -26,9 +26,48 @@ async function getResendConfig() {
 
     return {
         apiKey: data.resend_api_key,
+        fromEmail: data.resend_from_email,
         from: `${data.resend_from_name ?? 'Kyrkoregistret'} <${data.resend_from_email}>`,
         orgName: data.admin_title ?? 'Kyrkoregistret',
     }
+}
+
+function inboxHeaders() {
+    return {
+        Importance: 'high',
+        'X-Priority': '1',
+        'X-MSMail-Priority': 'High',
+        Priority: 'urgent',
+    }
+}
+
+async function sendResendEmail(cfg: Awaited<ReturnType<typeof getResendConfig>>, payload: {
+    to: string
+    subject: string
+    html: string
+    text: string
+}) {
+    const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${cfg.apiKey}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            from: cfg.from,
+            to: [payload.to],
+            reply_to: cfg.fromEmail,
+            subject: payload.subject,
+            html: payload.html,
+            text: payload.text,
+            headers: inboxHeaders(),
+        }),
+    })
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message ?? 'Resend API error')
+    }
+    return res.json()
 }
 
 // --------------------------------------------------------
@@ -168,40 +207,40 @@ export async function sendPaymentReceiptAction(params: {
         const orgName = cfg.orgName
 
         const date = new Date().toLocaleDateString('sv-SE')
+        const subject = `Betalningskvitto — ${params.familyName} ${date}`
         const html = buildReceiptHTML({
             ...params,
             date,
             orgName,
         })
+        const text = [
+            `${orgName} — Betalningskvitto ${date}`,
+            '',
+            `Familj: ${params.familyName}`,
+            `Make: ${params.makeNamn}`,
+            params.hustru_namn ? `Hustru: ${params.hustru_namn}` : '',
+            `Betalt belopp: ${params.amount.toLocaleString('sv-SE')} kr`,
+            `Betalt via: ${params.paidVia}`,
+            `Giltig till: ${params.validUntil}`,
+            params.reference ? `Referens: ${params.reference}` : '',
+            '',
+            'Tack för din betalning.',
+            'Detta är ett automatiskt genererat kvitto.',
+        ].filter(Boolean).join('\n')
 
-        // Send via Resend API
-        const res = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${cfg.apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                from: cfg.from,
-                to: [params.recipientEmail],
-                subject: `Betalningskvitto — ${params.familyName} ${date}`,
-                html,
-            }),
+        const result = await sendResendEmail(cfg, {
+            to: params.recipientEmail,
+            subject,
+            html,
+            text,
         })
-
-        if (!res.ok) {
-            const err = await res.json()
-            throw new Error(err.message ?? 'Resend API error')
-        }
-
-        const result = await res.json()
 
         // Log to email_receipts
         await supabase.from('email_receipts').insert({
             betalning_id: params.betalningId,
             recipient_email: params.recipientEmail,
             recipient_name: params.recipientName,
-            subject: `Betalningskvitto — ${params.familyName} ${date}`,
+            subject,
             resend_message_id: result.id,
         })
 
@@ -232,6 +271,7 @@ export async function sendPaymentReminderAction(params: {
         const cfg = await getResendConfig()
         const orgName = cfg.orgName
 
+        const subject = `Påminnelse om medlemsavgift — ${params.familyName}`
         const html = `
 <!DOCTYPE html>
 <html lang="sv">
@@ -239,23 +279,22 @@ export async function sendPaymentReminderAction(params: {
 <style>
   body { font-family: Arial, sans-serif; background: #F7F3EC; padding: 40px 20px; margin: 0; }
   .container { max-width: 520px; margin: 0 auto; background: #FEFCF8; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
-  .header { background: linear-gradient(135deg, #C0392B 0%, #922B21 100%); padding: 28px 32px; }
-  .header h1 { color: #fff; font-size: 20px; margin: 0; }
-  .header p { color: rgba(255,255,255,0.7); font-size: 13px; margin: 4px 0 0; }
+  .header { background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%); padding: 28px 32px; }
+  .header h1 { color: #C9A84C; font-size: 20px; margin: 0; }
+  .header p { color: #A09080; font-size: 13px; margin: 4px 0 0; }
   .body { padding: 28px 32px; }
-  .alert { background: #FDEDED; border: 1px solid #F5C6CB; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
-  .alert p { color: #842029; font-size: 13px; margin: 0; }
+  .alert { background: #FFF8EE; border: 1px solid #FCD34D; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  .alert p { color: #78350F; font-size: 13px; margin: 0; }
   .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #EDE8DF; font-size: 13px; }
   .row .label { color: #6B6355; }
   .row .value { font-weight: 600; color: #1A1A1A; }
-  .cta { background: #1A1A1A; color: #fff; padding: 14px 28px; border-radius: 10px; display: inline-block; margin-top: 20px; font-weight: 700; font-size: 14px; text-decoration: none; }
   .footer { background: #F7F3EC; padding: 16px 32px; text-align: center; font-size: 11px; color: #A09080; }
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>Påminnelse om betalning</h1>
+    <h1>Påminnelse om medlemsavgift</h1>
     <p>${orgName}</p>
   </div>
   <div class="body">
@@ -263,7 +302,7 @@ export async function sendPaymentReminderAction(params: {
       Hej <strong>${params.makeNamn}</strong>,
     </p>
     <div class="alert">
-      <p>⚠️ Din betalning för familjen <strong>${params.familyName}</strong> har förfallit. Vänligen betala snarast möjligt.</p>
+      <p>Medlemsavgiften för familjen <strong>${params.familyName}</strong> har förfallit. Vänligen betala snarast möjligt.</p>
     </div>
     <div class="row">
       <span class="label">Familj</span>
@@ -271,37 +310,35 @@ export async function sendPaymentReminderAction(params: {
     </div>
     <div class="row">
       <span class="label">Förfallet sedan</span>
-      <span class="value" style="color:#C0392B;">${params.overdueDate}</span>
+      <span class="value">${params.overdueDate}</span>
     </div>
     <p style="color:#6B6355; font-size:13px; margin-top:20px;">
-      Kontakta oss om du har frågor angående din betalning.
+      Kontakta oss om du har frågor angående din betalning. Svara på detta mejl så kommer det till församlingen.
     </p>
   </div>
   <div class="footer">
-    <p>${orgName} &bull; Automatisk påminnelse</p>
+    <p>${orgName}</p>
   </div>
 </div>
 </body>
 </html>`
+        const text = [
+            `${orgName} — Påminnelse om medlemsavgift`,
+            '',
+            `Hej ${params.makeNamn},`,
+            '',
+            `Medlemsavgiften för familjen ${params.familyName} har förfallit.`,
+            `Förfallet sedan: ${params.overdueDate}`,
+            '',
+            'Vänligen betala snarast möjligt. Svara på detta mejl om du har frågor.',
+        ].join('\n')
 
-        const res = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${cfg.apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                from: cfg.from,
-                to: [params.recipientEmail],
-                subject: `Påminnelse: Betalning förfallen — ${params.familyName}`,
-                html,
-            }),
+        await sendResendEmail(cfg, {
+            to: params.recipientEmail,
+            subject,
+            html,
+            text,
         })
-
-        if (!res.ok) {
-            const err = await res.json()
-            throw new Error(err.message ?? 'Resend API error')
-        }
 
         await logEvent('email_sent', 'family', params.familyId, {
             to: params.recipientEmail,
