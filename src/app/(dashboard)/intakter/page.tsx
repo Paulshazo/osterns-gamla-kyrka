@@ -52,8 +52,8 @@ export default function IntakterPage() {
         if (!canExport) return
         setExporting(true)
         try {
-            const headers = [language === 'sv' ? 'Datum' : 'Date', language === 'sv' ? 'Månad' : 'Month', 'Vecka', language === 'sv' ? 'Medlemsavgifter' : 'Membership Fees', language === 'sv' ? 'Gåvor' : 'Gifts', language === 'sv' ? 'Ungdom' : 'Youth', language === 'sv' ? 'Annat' : 'Other', 'Total kr']
-            const rows = items.map(i => [i.datum, i.manad, i.vecka, i.medlems_avgift ?? 0, i.gavor ?? 0, i.ungdomar ?? 0, i.annat ?? 0, i.total ?? 0])
+            const headers = [language === 'sv' ? 'Datum' : 'Date', language === 'sv' ? 'Månad' : 'Month', 'Vecka', language === 'sv' ? 'Källa' : 'Source', language === 'sv' ? 'Gåvor' : 'Gifts', language === 'sv' ? 'Ungdom' : 'Youth', language === 'sv' ? 'Annat' : 'Other', 'Total kr']
+            const rows = items.map(i => [i.datum, i.manad, i.vecka, i.rapporterat_av ?? '', i.gavor ?? 0, i.ungdomar ?? 0, i.annat ?? 0, i.total ?? 0])
             await exportToExcel('Intakter', language === 'sv' ? 'Intäkter' : 'Income', headers, rows)
         } finally { setExporting(false) }
     }
@@ -119,7 +119,7 @@ export default function IntakterPage() {
                                         <th>{t('page.income.date_month')}</th>
                                         <th>V.</th>
                                         <th>{t('table.total')}</th>
-                                        <th>{t('page.income.membership_fees')}/{t('page.income.gifts')}/{t('page.income.youth')}</th>
+                                        <th>{t('page.income.source')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -137,7 +137,9 @@ export default function IntakterPage() {
                                                 <td className="text-muted-foreground">V.{item.vecka}</td>
                                                 <td><span className="font-bold" style={{ color: '#2C7A4B' }}>+{(item.total ?? 0).toLocaleString('sv-SE')} kr</span></td>
                                                 <td className="text-xs text-muted-foreground">
-                                                    {item.medlems_avgift ?? 0}/{item.gavor ?? 0}/{item.ungdomar ?? 0}
+                                                    {item.rapporterat_av
+                                                        || [item.gavor ? `${t('page.income.gifts')} ${item.gavor}` : null, item.ungdomar ? `${t('page.income.youth')} ${item.ungdomar}` : null, item.annat ? `${t('page.income.other')} ${item.annat}` : null].filter(Boolean).join(' · ')
+                                                        || '—'}
                                                 </td>
                                             </tr>
                                         ))
@@ -205,7 +207,7 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
     const [loading, setLoading] = useState(false)
     const [data, setData] = useState({
         manad: months[new Date().getMonth()],
-        vecka: 1, medlems_avgift: 0, gavor: 0, ungdomar: 0, annat: 0,
+        vecka: 1, gavor: 0, ungdomar: 0, annat: 0,
         rapporterat_av: "", datum: new Date().toISOString().split('T')[0],
     })
     const set = (k: string, v: any) => setData(d => ({ ...d, [k]: v }))
@@ -215,8 +217,8 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
         if (!supabase) return
         if (!activeOrgId) return
         setLoading(true)
-        const total = (Number(data.medlems_avgift)||0) + (Number(data.gavor)||0) + (Number(data.ungdomar)||0) + (Number(data.annat)||0)
-        const { error } = await supabase.from('intakter').insert([{ ...data, total, organisation_id: activeOrgId }])
+        const total = (Number(data.gavor)||0) + (Number(data.ungdomar)||0) + (Number(data.annat)||0)
+        const { error } = await supabase.from('intakter').insert([{ ...data, medlems_avgift: 0, total, organisation_id: activeOrgId }])
         setLoading(false)
         if (error) alert(error.message)
         else onSuccess()
@@ -242,7 +244,6 @@ function IncomeForm({ supabase, t, language, activeOrgId, onClose, onSuccess }: 
                             <input type="number" className="input-premium" value={data.vecka} onChange={(e) => set('vecka', Number(e.target.value)||1)} />
                         </div>
                         {[
-                            [t('page.income.membership_fees'), 'medlems_avgift'],
                             [t('page.income.gifts'), 'gavor'],
                             [t('page.income.youth'), 'ungdomar'],
                             [t('page.income.other'), 'annat'],

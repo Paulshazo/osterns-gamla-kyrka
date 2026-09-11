@@ -13,6 +13,7 @@ import {
     familyMemberCounts,
     familyMonthlyFee,
 } from "@/lib/payment-period"
+import { syncPaymentToIncome } from "@/lib/membership-income"
 
 interface PaymentFormProps {
     onClose: () => void
@@ -227,6 +228,14 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                     betalat_via: formData.betalat_via,
                 })
             }
+
+            await syncPaymentToIncome(supabase, {
+                organisationId: activeOrgId,
+                paymentId: newPaymentId,
+                amount: paidAmount,
+                familyName: selectedFamilyData?.familje_namn ?? '',
+                isNew: !formData.id,
+            })
 
             // Send receipt if requested
             if (sendReceipt && receiptEmail && newPaymentId && selectedFamilyData) {
