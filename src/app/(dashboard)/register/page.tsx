@@ -428,14 +428,22 @@ export default function RegisterPage() {
                                         <div className="bg-secondary rounded-[10px] p-4">
                                             <div className="font-semibold mb-1">{selectedFamily.make_namn}</div>
                                             <div className="text-xs text-muted-foreground">PN: {selectedFamily.make_personnummer ?? '—'}</div>
-                                            <div className="text-xs text-muted-foreground">{selectedFamily.make_manads_avgift} kr/mån</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                {selectedFamily.make_manads_avgift === 0
+                                                    ? (language === 'sv' ? 'Befriad (kyrkotjänst)' : 'Exempt (church service)')
+                                                    : `${selectedFamily.make_manads_avgift} kr/mån`}
+                                            </div>
                                         </div>
                                     )}
                                     {selectedFamily.hustru_namn && (
                                         <div className="bg-secondary rounded-[10px] p-4">
                                             <div className="font-semibold mb-1">{selectedFamily.hustru_namn}</div>
                                             <div className="text-xs text-muted-foreground">PN: {selectedFamily.hustru_personnummer ?? '—'}</div>
-                                            <div className="text-xs text-muted-foreground">{selectedFamily.hustru_manads_avgift} kr/mån</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                {selectedFamily.hustru_manads_avgift === 0
+                                                    ? (language === 'sv' ? 'Befriad (kyrkotjänst)' : 'Exempt (church service)')
+                                                    : `${selectedFamily.hustru_manads_avgift} kr/mån`}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
@@ -451,7 +459,11 @@ export default function RegisterPage() {
                                         {selectedFamily.children.map((child: any, i: number) => (
                                             <div key={child.id ?? i} className="bg-secondary rounded-[10px] p-3 text-sm">
                                                 <div className="font-medium">{child.namn}</div>
-                                                <div className="text-xs text-muted-foreground">{child.manads_avgift} kr/mån</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    {child.manads_avgift === 0
+                                                        ? (language === 'sv' ? 'Befriad (kyrkotjänst)' : 'Exempt (church service)')
+                                                        : `${child.manads_avgift} kr/mån`}
+                                                </div>
                                             </div>
                                         ))}
                                     </div>

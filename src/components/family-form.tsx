@@ -6,6 +6,8 @@ import { X, Plus, Trash2, Loader2 } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { logAuditAction } from "@/app/actions/audit"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
+import { DEFAULT_ADULT_FEE, DEFAULT_CHILD_FEE, monthlyFeeFromPersonnummer } from "@/lib/payment-period"
+import { ageFromPersonnummer } from "@/lib/personnummer"
 
 interface FamilyFormProps {
     onClose: () => void
@@ -32,10 +34,10 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         familje_namn:         initialData?.familje_namn         || "",
         make_namn:            initialData?.make_namn            || "",
         make_personnummer:    initialData?.make_personnummer     || "",
-        make_manads_avgift:   initialData?.make_manads_avgift   ?? 200,
+        make_manads_avgift:   initialData?.make_manads_avgift   ?? DEFAULT_ADULT_FEE,
         hustru_namn:          initialData?.hustru_namn          || "",
         hustru_personnummer:  initialData?.hustru_personnummer  || "",
-        hustru_manads_avgift: initialData?.hustru_manads_avgift ?? 200,
+        hustru_manads_avgift: initialData?.hustru_manads_avgift ?? DEFAULT_ADULT_FEE,
         mobil_nummer:         initialData?.mobil_nummer         || "",
         mail:                 initialData?.mail                 || "",
         adress:               initialData?.adress               || "",
@@ -45,14 +47,69 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
     })
 
     const [children, setChildren] = useState<any[]>(
-        (initialData?.children || []).map((c: any, i: number) => ({ ...c, _key: c.id || `child-${i}` }))
+        (initialData?.children || []).map((c: any, i: number) => ({
+            ...c,
+            _key: c.id || `child-${i}`,
+            avgift_befriad: Number(c.manads_avgift) === 0 && !!(c.namn || c.personnummer),
+        }))
+    )
+    const [makeExempt, setMakeExempt] = useState(
+        Number(initialData?.make_manads_avgift) === 0 && !!(initialData?.make_namn || initialData?.make_personnummer)
+    )
+    const [hustruExempt, setHustruExempt] = useState(
+        Number(initialData?.hustru_manads_avgift) === 0 && !!(initialData?.hustru_namn || initialData?.hustru_personnummer)
     )
 
     const set = (k: string, v: any) => setFamilyData(prev => ({ ...prev, [k]: v }))
 
+    const feeFromPn = (pn: string, exempt: boolean, fallback: number) => {
+        if (exempt) return 0
+        return monthlyFeeFromPersonnummer(pn) ?? fallback
+    }
+
+    const setAdultPersonnummer = (who: 'make' | 'hustru', raw: string) => {
+        const pn = raw.replace(/\D/g, '')
+        if (who === 'make') {
+            setFamilyData(prev => ({
+                ...prev,
+                make_personnummer: pn,
+                make_manads_avgift: feeFromPn(pn, makeExempt, prev.make_manads_avgift),
+            }))
+            return
+        }
+        setFamilyData(prev => ({
+            ...prev,
+            hustru_personnummer: pn,
+            hustru_manads_avgift: feeFromPn(pn, hustruExempt, prev.hustru_manads_avgift),
+        }))
+    }
+
+    const toggleAdultExempt = (who: 'make' | 'hustru', exempt: boolean) => {
+        if (who === 'make') {
+            setMakeExempt(exempt)
+            setFamilyData(prev => ({
+                ...prev,
+                make_manads_avgift: feeFromPn(prev.make_personnummer, exempt, DEFAULT_ADULT_FEE),
+            }))
+            return
+        }
+        setHustruExempt(exempt)
+        setFamilyData(prev => ({
+            ...prev,
+            hustru_manads_avgift: feeFromPn(prev.hustru_personnummer, exempt, DEFAULT_ADULT_FEE),
+        }))
+    }
+
     const addChild = () => {
         if (children.length >= 6) return
-        setChildren(prev => [...prev, { _key: `child-${Date.now()}`, ordning: prev.length + 1, namn: "", personnummer: "", manads_avgift: 100 }])
+        setChildren(prev => [...prev, {
+            _key: `child-${Date.now()}`,
+            ordning: prev.length + 1,
+            namn: "",
+            personnummer: "",
+            manads_avgift: DEFAULT_CHILD_FEE,
+            avgift_befriad: false,
+        }])
     }
 
     const removeChild = (key: string) => {
@@ -61,6 +118,36 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
 
     const updateChild = (key: string, field: string, value: any) => {
         setChildren(prev => prev.map(c => c._key === key ? { ...c, [field]: value } : c))
+    }
+
+    const setChildPersonnummer = (key: string, raw: string) => {
+        const pn = raw.replace(/\D/g, '')
+        setChildren(prev => prev.map(c => {
+            if (c._key !== key) return c
+            const age = ageFromPersonnummer(pn)
+            const adult = age !== null && age >= 18
+            const under18 = age !== null && age < 18
+            const exempt = adult && c.avgift_befriad
+            return {
+                ...c,
+                personnummer: pn,
+                avgift_befriad: under18 ? false : c.avgift_befriad,
+                manads_avgift: age === null
+                    ? (c.avgift_befriad ? 0 : c.manads_avgift)
+                    : feeFromPn(pn, exempt, adult ? DEFAULT_ADULT_FEE : DEFAULT_CHILD_FEE),
+            }
+        }))
+    }
+
+    const toggleChildExempt = (key: string, exempt: boolean) => {
+        setChildren(prev => prev.map(c => {
+            if (c._key !== key) return c
+            return {
+                ...c,
+                avgift_befriad: exempt,
+                manads_avgift: feeFromPn(c.personnummer, exempt, DEFAULT_ADULT_FEE),
+            }
+        }))
     }
 
     const doSave = async () => {
@@ -73,7 +160,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         setPendingSubmit(false)
         setConfirmMsg(null)
         try {
-            const childrenPayload = children.map(({ _key, ...c }) => c)
+            const childrenPayload = children.map(({ _key, avgift_befriad, ...c }) => c)
             const familyPayload = { ...familyData, organisation_id: activeOrgId }
             if (familyData.id) {
                 const { error: rpcError } = await supabase.rpc('update_family_with_children', {
@@ -242,6 +329,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                 <h3 className="font-semibold text-sm border-b border-border pb-2 uppercase tracking-wider text-muted-foreground">
                                     {t('form.family.adults')}
                                 </h3>
+                                <p className="text-xs text-muted-foreground -mt-2">{t('form.family.fee_auto_hint')}</p>
                                 {/* Husband */}
                                 <div className="p-4 rounded-[10px] border border-border bg-secondary/30 space-y-3">
                                     <div className="space-y-1.5">
@@ -254,14 +342,24 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                             <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.ssn')}</label>
                                             <input className={inputCls('make_personnummer')} maxLength={12} placeholder="ÅÅÅÅMMDDNNNN"
                                                 value={familyData.make_personnummer}
-                                                onChange={e => set('make_personnummer', e.target.value.replace(/\D/g, ''))} />
+                                                onChange={e => setAdultPersonnummer('make', e.target.value)} />
                                         </div>
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.fee')} (kr)</label>
-                                            <input type="number" className={inputCls('make_manads_avgift')} value={familyData.make_manads_avgift}
-                                                onChange={e => set('make_manads_avgift', Number(e.target.value) || 0)} />
+                                            <input type="text" readOnly tabIndex={-1} className="input-premium"
+                                                style={{ background: '#F7F3EC', color: makeExempt ? '#C0392B' : '#6B6355' }}
+                                                value={`${familyData.make_manads_avgift} kr`} />
                                         </div>
                                     </div>
+                                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                                        <input type="checkbox" className="mt-1 rounded"
+                                            checked={makeExempt}
+                                            onChange={e => toggleAdultExempt('make', e.target.checked)} />
+                                        <span>
+                                            <span className="font-medium">{t('form.family.fee_exempt')}</span>
+                                            <span className="block text-xs text-muted-foreground">{t('form.family.fee_exempt_hint')}</span>
+                                        </span>
+                                    </label>
                                 </div>
                                 {/* Wife */}
                                 <div className="p-4 rounded-[10px] border border-border bg-secondary/30 space-y-3">
@@ -275,14 +373,24 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                             <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.ssn')}</label>
                                             <input className={inputCls('hustru_personnummer')} maxLength={12} placeholder="ÅÅÅÅMMDDNNNN"
                                                 value={familyData.hustru_personnummer}
-                                                onChange={e => set('hustru_personnummer', e.target.value.replace(/\D/g, ''))} />
+                                                onChange={e => setAdultPersonnummer('hustru', e.target.value)} />
                                         </div>
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.fee')} (kr)</label>
-                                            <input type="number" className="input-premium" value={familyData.hustru_manads_avgift}
-                                                onChange={e => set('hustru_manads_avgift', Number(e.target.value) || 0)} />
+                                            <input type="text" readOnly tabIndex={-1} className="input-premium"
+                                                style={{ background: '#F7F3EC', color: hustruExempt ? '#C0392B' : '#6B6355' }}
+                                                value={`${familyData.hustru_manads_avgift} kr`} />
                                         </div>
                                     </div>
+                                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                                        <input type="checkbox" className="mt-1 rounded"
+                                            checked={hustruExempt}
+                                            onChange={e => toggleAdultExempt('hustru', e.target.checked)} />
+                                        <span>
+                                            <span className="font-medium">{t('form.family.fee_exempt')}</span>
+                                            <span className="block text-xs text-muted-foreground">{t('form.family.fee_exempt_hint')}</span>
+                                        </span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
@@ -299,7 +407,10 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                 </button>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {children.map((child, index) => (
+                                {children.map((child, index) => {
+                                    const childAge = ageFromPersonnummer(child.personnummer)
+                                    const childIsAdult = childAge !== null && childAge >= 18
+                                    return (
                                     <div key={child._key} className="p-4 rounded-[10px] border border-border bg-secondary/30 relative">
                                         <button type="button" onClick={() => removeChild(child._key)}
                                             className="absolute top-3 right-3 p-1 rounded hover:bg-red-50 transition-colors"
@@ -319,17 +430,30 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                                     <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.ssn')}</label>
                                                     <input className="input-premium" maxLength={12} placeholder="ÅÅÅÅMMDDNNNN"
                                                         value={child.personnummer}
-                                                        onChange={e => updateChild(child._key, 'personnummer', e.target.value.replace(/\D/g, ''))} />
+                                                        onChange={e => setChildPersonnummer(child._key, e.target.value)} />
                                                 </div>
                                                 <div className="space-y-1">
                                                     <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.fee')}</label>
-                                                    <input type="number" className="input-premium" value={child.manads_avgift}
-                                                        onChange={e => updateChild(child._key, 'manads_avgift', Number(e.target.value) || 0)} />
+                                                    <input type="text" readOnly tabIndex={-1} className="input-premium"
+                                                        style={{ background: '#F7F3EC', color: child.avgift_befriad ? '#C0392B' : '#6B6355' }}
+                                                        value={`${child.manads_avgift ?? 0} kr`} />
                                                 </div>
                                             </div>
+                                            {childIsAdult && (
+                                                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                                                    <input type="checkbox" className="mt-1 rounded"
+                                                        checked={!!child.avgift_befriad}
+                                                        onChange={e => toggleChildExempt(child._key, e.target.checked)} />
+                                                    <span>
+                                                        <span className="font-medium">{t('form.family.fee_exempt')}</span>
+                                                        <span className="block text-xs text-muted-foreground">{t('form.family.fee_exempt_hint')}</span>
+                                                    </span>
+                                                </label>
+                                            )}
                                         </div>
                                     </div>
-                                ))}
+                                    )
+                                })}
                                 {children.length === 0 && (
                                     <div className="col-span-full py-8 text-center border-2 border-dashed border-border rounded-[10px] text-muted-foreground text-sm">
                                         {t('form.family.no_children')}

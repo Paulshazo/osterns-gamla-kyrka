@@ -1,8 +1,16 @@
 import { addDays, addMonths, format, isAfter, parseISO, startOfDay } from "date-fns"
 import { enUS, sv } from "date-fns/locale"
+import { ageFromPersonnummer } from "@/lib/personnummer"
 
 export const DEFAULT_ADULT_FEE = 200
 export const DEFAULT_CHILD_FEE = 100
+
+/** 100 kr under 18, 200 kr from 18. Returns null until the personal number can be parsed. */
+export function monthlyFeeFromPersonnummer(pn: string | null | undefined): number | null {
+    const age = ageFromPersonnummer(pn)
+    if (age === null) return null
+    return age < 18 ? DEFAULT_CHILD_FEE : DEFAULT_ADULT_FEE
+}
 
 export type FamilyFeeInput = {
     make_namn?: string | null
