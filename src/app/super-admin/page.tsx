@@ -3,10 +3,14 @@
 import { useState, useEffect, useMemo } from "react"
 import { createClient } from "@/utils/supabase/client"
 import {
-    Building2, Plus, Users, Loader2, CheckCircle, XCircle,
-    Eye, ArrowRight, ScrollText, BarChart3, Trash2,
+    Building2, Plus, Users, Loader2, CheckCircle,
+    Eye, ArrowRight, Trash2,
 } from "lucide-react"
-import { createOrganisation, setActiveOrganisation, deleteOrganisation, getOrgsWithMemberCount, getActiveUserCount } from "@/app/actions/org"
+import {
+    createOrganisation, setActiveOrganisation, deleteOrganisation,
+    getOrgsWithMemberCount, getActiveUserCount, getMyPlatformRole,
+} from "@/app/actions/org"
+import type { ProfileRole } from "@/lib/permissions"
 
 interface Organisation {
     id: string
@@ -33,24 +37,23 @@ export default function SuperAdminPage() {
     const [totalUsers, setTotalUsers] = useState(0)
     const [totalFamilies, setTotalFamilies] = useState(0)
     const [deletingId, setDeletingId] = useState<string | null>(null)
+    const [myRole, setMyRole] = useState<ProfileRole | null>(null)
 
     const [newName, setNewName] = useState("")
     const [newSlug, setNewSlug] = useState("")
     const [newColor, setNewColor] = useState("#C9A84C")
 
+    const canWrite = myRole === 'superadmin'
+
     const fetchOrgs = async () => {
         if (!supabase) return
         try {
-            const { data } = await supabase
-                .from('organisations')
-                .select('*')
-                .order('created_at', { ascending: false })
+            const roleRes = await getMyPlatformRole()
+            if (roleRes.success) setMyRole(roleRes.role)
 
-            // Fetch member counts via server action
             const orgsWithCount = await getOrgsWithMemberCount()
-            setOrgs(orgsWithCount ?? data ?? [])
+            setOrgs(orgsWithCount ?? [])
 
-            // Only users currently active in an organisation (not orphaned profiles)
             setTotalUsers(await getActiveUserCount())
             const { count: famCount } = await supabase.from('familjer').select('id', { count: 'exact', head: true })
             setTotalFamilies(famCount ?? 0)
@@ -62,6 +65,7 @@ export default function SuperAdminPage() {
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (!canWrite) return
         setCreating(true)
         setError(null)
         try {
@@ -84,6 +88,7 @@ export default function SuperAdminPage() {
     }
 
     const handleDelete = async (orgId: string, orgName: string) => {
+        if (!canWrite) return
         if (!confirm(`Är du säker att du vill radera "${orgName}"? Detta kan inte ångras.`)) return
         setDeletingId(orgId)
         try {
@@ -114,7 +119,12 @@ export default function SuperAdminPage() {
 
     return (
         <div className="space-y-8">
-            {/* Global stats */}
+            {!canWrite && (
+                <div className="p-4 rounded-[10px] text-sm border" style={{ background: '#FEF9C3', borderColor: '#FDE68A', color: '#92400E' }}>
+                    Du är inloggad som <strong>super användare</strong> — du kan bevaka alla organisationer men inte ändra något.
+                </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: 'Organisationer', value: orgs.length, icon: Building2, color: '#C9A84C' },
@@ -132,24 +142,26 @@ export default function SuperAdminPage() {
                 ))}
             </div>
 
-            {/* Header + Create button */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
                 <div>
                     <h2 className="text-2xl font-bold" style={{ color: '#1A1A1A' }}>Organisationer</h2>
-                    <p className="text-sm mt-1" style={{ color: '#6B6355' }}>Hantera alla organisationer, användare och data</p>
+                    <p className="text-sm mt-1" style={{ color: '#6B6355' }}>
+                        {canWrite ? 'Hantera alla organisationer, användare och data' : 'Bevaka alla organisationer'}
+                    </p>
                 </div>
-                <button onClick={() => setShowCreate(!showCreate)}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] text-sm font-semibold transition-all"
-                    style={{ background: '#1A1A1A', color: '#FEFCF8' }}>
-                    <Plus size={16} /> Ny organisation
-                </button>
+                {canWrite && (
+                    <button onClick={() => setShowCreate(!showCreate)}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-[10px] text-sm font-semibold transition-all"
+                        style={{ background: '#1A1A1A', color: '#FEFCF8' }}>
+                        <Plus size={16} /> Ny organisation
+                    </button>
+                )}
             </div>
 
             {error && <div className="p-4 rounded-[10px] border text-sm bg-red-50 text-red-700 border-red-200">{error}</div>}
             {success && <div className="p-4 rounded-[10px] border text-sm bg-green-50 text-green-700 border-green-200">{success}</div>}
 
-            {/* Create form */}
-            {showCreate && (
+            {canWrite && showCreate && (
                 <div className="bg-card border border-border rounded-[14px] overflow-hidden shadow-sm">
                     <div className="px-6 py-4 border-b border-border font-semibold text-sm flex items-center gap-2" style={{ background: '#F7F3EC' }}>
                         <Plus size={16} style={{ color: '#C9A84C' }} />
@@ -170,7 +182,6 @@ export default function SuperAdminPage() {
                             <input className="input-premium" value={newSlug}
                                 onChange={(e) => setNewSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
                                 placeholder="stockholm-kyrkan" required />
-                            <p className="text-xs text-muted-foreground">Unik identifierare i URL:er</p>
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-sm font-semibold">Primärfärg</label>
@@ -196,7 +207,6 @@ export default function SuperAdminPage() {
                 </div>
             )}
 
-            {/* Org list */}
             <div className="bg-card border border-border rounded-[14px] overflow-hidden shadow-sm">
                 <div className="px-6 py-4 border-b border-border font-semibold text-sm flex items-center gap-2" style={{ background: '#F7F3EC' }}>
                     <Building2 size={16} style={{ color: '#C9A84C' }} />
@@ -207,7 +217,6 @@ export default function SuperAdminPage() {
                         const memberCount = org.organisation_members?.[0]?.count ?? 0
                         return (
                             <div key={org.id} className="flex items-center gap-4 px-6 py-4 hover:bg-black/[0.02] transition-colors">
-                                {/* Logo */}
                                 {org.logo_url ? (
                                     <img src={org.logo_url} alt={org.name} className="w-11 h-11 rounded-xl object-contain flex-shrink-0" />
                                 ) : (
@@ -217,7 +226,6 @@ export default function SuperAdminPage() {
                                     </div>
                                 )}
 
-                                {/* Info */}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                         <h3 className="font-semibold text-sm truncate" style={{ color: '#1A1A1A' }}>{org.name}</h3>
@@ -234,27 +242,28 @@ export default function SuperAdminPage() {
                                     </div>
                                 </div>
 
-                                {/* Actions */}
                                 <div className="flex items-center gap-2 flex-shrink-0">
                                     <button onClick={() => handleImpersonate(org.id)}
                                         className="flex items-center gap-1.5 px-3 py-2 rounded-[8px] text-xs font-medium transition-all hover:shadow-sm"
                                         style={{ background: '#F7F3EC', color: '#1A1A1A' }}
-                                        title="Logga in som denna org">
+                                        title={canWrite ? 'Öppna dashboard' : 'Bevaka dashboard (endast läsning)'}>
                                         <Eye size={12} /> Visa
                                     </button>
                                     <a href={`/super-admin/${org.id}`}
                                         className="flex items-center gap-1.5 px-3 py-2 rounded-[8px] text-xs font-medium transition-all hover:shadow-sm"
                                         style={{ background: '#1A1A1A', color: '#C9A84C' }}>
-                                        Hantera <ArrowRight size={12} />
+                                        {canWrite ? 'Hantera' : 'Visa'} <ArrowRight size={12} />
                                     </a>
-                                    <button onClick={() => handleDelete(org.id, org.name)}
-                                        disabled={deletingId === org.id}
-                                        className="p-2 rounded-[8px] text-xs transition-all hover:bg-red-50 disabled:opacity-50"
-                                        title="Radera organisation">
-                                        {deletingId === org.id
-                                            ? <Loader2 size={13} className="animate-spin text-red-500" />
-                                            : <Trash2 size={13} className="text-red-400" />}
-                                    </button>
+                                    {canWrite && (
+                                        <button onClick={() => handleDelete(org.id, org.name)}
+                                            disabled={deletingId === org.id}
+                                            className="p-2 rounded-[8px] text-xs transition-all hover:bg-red-50 disabled:opacity-50"
+                                            title="Radera organisation">
+                                            {deletingId === org.id
+                                                ? <Loader2 size={13} className="animate-spin text-red-500" />
+                                                : <Trash2 size={13} className="text-red-400" />}
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         )
@@ -263,7 +272,6 @@ export default function SuperAdminPage() {
                         <div className="text-center py-16">
                             <Building2 size={48} className="mx-auto mb-4" style={{ color: '#DDD8CE' }} />
                             <p className="font-semibold" style={{ color: '#6B6355' }}>Inga organisationer ännu</p>
-                            <p className="text-sm mt-1" style={{ color: '#8A8178' }}>Klicka "Ny organisation" ovan för att komma igång.</p>
                         </div>
                     )}
                 </div>

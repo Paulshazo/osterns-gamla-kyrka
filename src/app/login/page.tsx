@@ -82,20 +82,24 @@ export default function LoginPage() {
                 .eq('id', user.id)
                 .single()
 
+            const userIsPlatform = profile?.role === 'superadmin' || profile?.role === 'superuser'
             const userIsSuperAdmin = profile?.role === 'superadmin'
-            setIsSuperAdmin(userIsSuperAdmin)
+            setIsSuperAdmin(userIsPlatform)
 
             // Fetch organisations CLIENT-SIDE (not server action — avoids cookie timing issue)
             let orgs: OrgOption[] = []
 
-            if (userIsSuperAdmin) {
-                // Superadmin sees ALL orgs
+            if (userIsPlatform) {
+                // Platform staff sees ALL orgs
                 const { data: allOrgs } = await supabase
                     .from('organisations')
                     .select('id, name, slug, logo_url, primary_color')
                     .eq('is_active', true)
                     .order('name')
-                orgs = (allOrgs ?? []).map(o => ({ ...o, member_role: 'superadmin' }))
+                orgs = (allOrgs ?? []).map(o => ({
+                    ...o,
+                    member_role: userIsSuperAdmin ? 'superadmin' : 'superuser',
+                }))
             } else {
                 // Regular user — fetch via memberships
                 const { data: memberships } = await supabase
@@ -117,7 +121,7 @@ export default function LoginPage() {
             }
 
             if (orgs.length === 0) {
-                if (userIsSuperAdmin) {
+                if (userIsPlatform) {
                     window.location.href = "/super-admin"
                     return
                 }
@@ -126,13 +130,13 @@ export default function LoginPage() {
                 return
             }
 
-            if (orgs.length === 1 && !userIsSuperAdmin) {
+            if (orgs.length === 1 && !userIsPlatform) {
                 await setActiveOrganisation(orgs[0].id)
                 window.location.href = "/"
                 return
             }
 
-            // Multiple orgs or superadmin — show org selector
+            // Multiple orgs or platform staff — show org selector
             setOrganisations(orgs)
             setStep("select-org")
             setLoading(false)

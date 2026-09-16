@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { logAuditAction } from './audit'
 import { supabaseAnonKey, supabaseUrl } from '@/utils/supabase/config'
+import { isPlatformRole, isSuperAdminRole } from '@/lib/permissions'
 
 function getServiceRoleClient() {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -71,6 +72,8 @@ async function verifyAdminAccess() {
         return { user, role: profile.role as 'superadmin' | 'admin' }
     }
 
+    // Superusers manage platform settings via dedicated actions, not org admin APIs.
+
     const orgId = await getActiveOrgId()
     if (orgId) {
         const { data: membership } = await supabase
@@ -123,8 +126,11 @@ export async function createUserAction(formData: FormData) {
         const role = formData.get('role') as string
         const rawPermissions = formData.getAll('permissions')
 
-        if (role === 'superadmin' && currentUserRole !== 'superadmin') {
-            throw new Error("Endast superadmins kan skapa andra superadmins.")
+        if (isPlatformRole(role)) {
+            throw new Error("Superadmin/superanvändare skapas bara från Super Admin → Inställningar.")
+        }
+        if (role !== 'admin' && role !== 'user') {
+            throw new Error("Ogiltig roll.")
         }
 
         const activeOrgId = await getActiveOrgId()
@@ -133,7 +139,7 @@ export async function createUserAction(formData: FormData) {
         }
 
         const permissionsArray = rawPermissions.map(p => p.toString())
-        const memberRole = role === 'superadmin' ? 'admin' : role
+        const memberRole = role
         const supabaseAdmin = tryServiceRoleClient()
         let newUserId: string
 
@@ -233,8 +239,16 @@ export async function updateUserRoleAndPermissions(userId: string, role: string,
 
         const { data: targetUser } = await supabase.from('user_profiles').select('role').eq('id', userId).single()
 
+        if (isPlatformRole(role)) {
+            throw new Error("Plattformsroller hanteras under Super Admin → Inställningar.")
+        }
+
         if (targetUser?.role === 'superadmin' && role !== 'superadmin') {
             throw new Error("Superadmin-rollen kan inte tas bort från ett konto.")
+        }
+
+        if (isPlatformRole(targetUser?.role)) {
+            throw new Error("Plattformsanvändare hanteras inte här.")
         }
 
         if (targetUser?.role === 'superadmin' && currentUserRole !== 'superadmin') {
@@ -303,8 +317,12 @@ export async function deleteUserAction(userId: string) {
             .eq('id', userId)
             .single()
 
-        if (targetUser?.role === 'superadmin') {
+        if (isSuperAdminRole(targetUser?.role)) {
             throw new Error("Superadmin-konton kan inte raderas.")
+        }
+
+        if (targetUser?.role === 'superuser' && !isSuperAdminRole(currentUserRole)) {
+            throw new Error("Endast superadmin kan radera en superanvändare.")
         }
 
         if (supabaseAdmin) {
@@ -339,11 +357,10 @@ export async function listOrganisationUsers() {
         }
 
         const authClient = await getAuthClient()
-        // Prefer service role so newly linked members are always visible even when
-        // RLS profile policies are stricter than org-admin membership checks.
         const queryClient = tryServiceRoleClient() ?? authClient
 
-        if (currentUserRole === 'superadmin' || currentUserRole === 'admin') {
+        // Never attach platform accounts to an organisation.
+        if (currentUserRole === 'admin' && !isPlatformRole(currentUserRole)) {
             await queryClient.from('organisation_members').upsert({
                 organisation_id: orgId,
                 user_id: user.id,
@@ -361,41 +378,43 @@ export async function listOrganisationUsers() {
         if (memberError) throw memberError
 
         const ids = [...new Set((members ?? []).map(m => m.user_id).filter(Boolean))]
-        if (!ids.includes(user.id)) ids.push(user.id)
 
         const { data: profiles, error: profileError } = await queryClient
             .from('user_profiles')
             .select('id, email, role, permissions, created_at')
-            .in('id', ids)
+            .in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000'])
 
         if (profileError) throw profileError
 
         const profileById = new Map((profiles ?? []).map(p => [p.id, p]))
         const users = (members ?? []).flatMap((row) => {
             const profile = profileById.get(row.user_id)
-            if (!profile) return []
-            const role = profile.role === 'superadmin'
-                ? 'superadmin'
-                : (row.role === 'admin' ? 'admin' : 'user')
+            if (!profile || isPlatformRole(profile.role)) return []
+            const role = row.role === 'admin' ? 'admin' : 'user'
             const permissions = Array.isArray(row.permissions)
                 ? row.permissions
                 : (Array.isArray(profile.permissions) ? profile.permissions : [])
             return [{
                 id: profile.id as string,
                 email: profile.email as string,
-                role: role as 'superadmin' | 'admin' | 'user',
+                role: role as 'admin' | 'user',
                 permissions: permissions as string[],
                 created_at: profile.created_at as string,
             }]
         })
 
-        if (!users.some(u => u.id === user.id)) {
-            const me = profileById.get(user.id)
-            if (me) {
+        // Org admins (non-platform) still see themselves in the list.
+        if (!isPlatformRole(currentUserRole) && !users.some(u => u.id === user.id)) {
+            const { data: me } = await queryClient
+                .from('user_profiles')
+                .select('id, email, role, permissions, created_at')
+                .eq('id', user.id)
+                .maybeSingle()
+            if (me && !isPlatformRole(me.role)) {
                 users.unshift({
                     id: me.id,
                     email: me.email,
-                    role: (me.role === 'superadmin' || me.role === 'admin' || me.role === 'user') ? me.role : 'user',
+                    role: (me.role === 'admin' || me.role === 'user') ? me.role : 'user',
                     permissions: Array.isArray(me.permissions) ? me.permissions : [],
                     created_at: me.created_at,
                 })
@@ -405,5 +424,128 @@ export async function listOrganisationUsers() {
         return { success: true as const, users }
     } catch (error: any) {
         return { success: false as const, users: [], error: error.message }
+    }
+}
+
+export async function listPlatformUsers() {
+    try {
+        const supabaseAuth = await getAuthClient()
+        const { data: { user } } = await supabaseAuth.auth.getUser()
+        if (!user) throw new Error('Ej inloggad')
+
+        const supabase = tryServiceRoleClient() ?? supabaseAuth
+        const { data: me } = await supabase
+            .from('user_profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single()
+        if (!isPlatformRole(me?.role)) throw new Error('Endast plattformsanvändare')
+
+        const { data, error } = await supabase
+            .from('user_profiles')
+            .select('id, email, role, created_at')
+            .in('role', ['superadmin', 'superuser'])
+            .order('email')
+        if (error) throw error
+
+        const users = [...(data ?? [])].sort((a, b) => {
+            if (a.role === b.role) return (a.email ?? '').localeCompare(b.email ?? '')
+            return a.role === 'superadmin' ? -1 : 1
+        })
+        return { success: true as const, users }
+    } catch (error: any) {
+        return { success: false as const, users: [], error: error.message }
+    }
+}
+
+export async function createSuperUserAction(formData: FormData) {
+    try {
+        const { role: currentUserRole } = await verifyAdminAccess()
+        if (!isSuperAdminRole(currentUserRole)) {
+            throw new Error('Endast superadmin kan skapa superanvändare.')
+        }
+
+        const email = formData.get('email') as string
+        const password = formData.get('password') as string
+        if (!email || !password) throw new Error('E-post och lösenord krävs.')
+        if (password.length < 8) throw new Error('Lösenordet måste vara minst 8 tecken.')
+
+        const supabaseAdmin = tryServiceRoleClient()
+        if (!supabaseAdmin) {
+            throw new Error('SUPABASE_SERVICE_ROLE_KEY saknas — krävs för att skapa konton.')
+        }
+
+        const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+        })
+        if (createError) throw createError
+        if (!authData.user) throw new Error('Kunde inte skapa användare.')
+        const newUserId = authData.user.id
+
+        let updateError: { message: string } | null = null
+        for (let i = 0; i < 5; i++) {
+            const { error } = await supabaseAdmin
+                .from('user_profiles')
+                .update({
+                    role: 'superuser',
+                    permissions: [],
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', newUserId)
+            updateError = error
+            if (!error) break
+            await new Promise(resolve => setTimeout(resolve, 250))
+        }
+        if (updateError) throw updateError
+
+        // Ensure they are not members of any organisation
+        await supabaseAdmin
+            .from('organisation_members')
+            .delete()
+            .eq('user_id', newUserId)
+
+        await logAuditAction('create', 'user', newUserId, { email, role: 'superuser' })
+        return { success: true, message: 'Superanvändare skapad!' }
+    } catch (error: any) {
+        console.error('Error creating superuser:', error)
+        return { success: false, error: error.message || 'Kunde inte skapa superanvändare.' }
+    }
+}
+
+export async function deleteSuperUserAction(userId: string) {
+    try {
+        const { role: currentUserRole, user: currentUser } = await verifyAdminAccess()
+        if (!isSuperAdminRole(currentUserRole)) {
+            throw new Error('Endast superadmin kan radera superanvändare.')
+        }
+        if (userId === currentUser.id) {
+            throw new Error('Du kan inte radera ditt eget konto.')
+        }
+
+        const supabaseAdmin = tryServiceRoleClient()
+        if (!supabaseAdmin) throw new Error('SUPABASE_SERVICE_ROLE_KEY saknas.')
+
+        const { data: target } = await supabaseAdmin
+            .from('user_profiles')
+            .select('role')
+            .eq('id', userId)
+            .single()
+
+        if (isSuperAdminRole(target?.role)) {
+            throw new Error('Superadmin-konton kan inte raderas.')
+        }
+        if (target?.role !== 'superuser') {
+            throw new Error('Kontot är inte en superanvändare.')
+        }
+
+        const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
+        if (error) throw error
+
+        await logAuditAction('delete', 'user', userId, { role: 'superuser' })
+        return { success: true }
+    } catch (error: any) {
+        return { success: false, error: error.message }
     }
 }

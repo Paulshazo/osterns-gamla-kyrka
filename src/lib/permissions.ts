@@ -1,5 +1,15 @@
-export type ProfileRole = 'superadmin' | 'admin' | 'user'
+export type ProfileRole = 'superadmin' | 'superuser' | 'admin' | 'user'
 export type Department = 'register' | 'payments' | 'income' | 'expenses' | 'stats'
+
+export const PLATFORM_ROLES: ProfileRole[] = ['superadmin', 'superuser']
+
+export function isPlatformRole(role: string | null | undefined): boolean {
+    return role === 'superadmin' || role === 'superuser'
+}
+
+export function isSuperAdminRole(role: string | null | undefined): boolean {
+    return role === 'superadmin'
+}
 
 export const DEPARTMENTS: { id: Department; labelSv: string; labelEn: string }[] = [
     { id: 'register', labelSv: 'Familjeregister', labelEn: 'Family register' },

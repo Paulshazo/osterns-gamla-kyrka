@@ -412,21 +412,20 @@ export default function UsersPage() {
                                     <select className="input-premium" value={editRole}
                                         onChange={e => setEditRole(e.target.value as any)}
                                         disabled={selectedUser.role === 'superadmin'}>
-                                        {selectedUser.role !== 'superadmin' && (
+                                        {selectedUser.role === 'superadmin' ? (
+                                            <option value="superadmin">Superadmin</option>
+                                        ) : (
                                             <>
                                                 <option value="user">{language === 'sv' ? 'Användare' : 'User'}</option>
                                                 <option value="admin">{language === 'sv' ? 'Administratör' : 'Administrator'}</option>
                                             </>
                                         )}
-                                        {(currentUserRole === 'superadmin' || selectedUser.role === 'superadmin') && (
-                                            <option value="superadmin">Superadmin</option>
-                                        )}
                                     </select>
                                     {selectedUser.role === 'superadmin' && (
                                         <p className="text-xs text-muted-foreground">
                                             {language === 'sv'
-                                                ? 'Superadmin-rollen kan inte ändras eller raderas.'
-                                                : 'The superadmin role cannot be changed or deleted.'}
+                                                ? 'Superadmin-rollen kan inte ändras här. Hanteras under Super Admin → Inställningar.'
+                                                : 'The superadmin role cannot be changed here.'}
                                         </p>
                                     )}
                                 </div>

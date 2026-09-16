@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { logAuditAction } from './audit'
 import { supabaseAnonKey, supabaseUrl } from '@/utils/supabase/config'
+import { isPlatformRole, isSuperAdminRole, type ProfileRole } from '@/lib/permissions'
 
 async function getAuthClient() {
     const cookieStore = await cookies()
@@ -21,17 +22,42 @@ async function getAuthClient() {
     })
 }
 
+async function getProfileRole(userId: string, supabase: Awaited<ReturnType<typeof getAuthClient>>) {
+    const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', userId)
+        .single()
+    return (profile?.role ?? null) as ProfileRole | null
+}
+
+/** Full write access — superadmin only. */
 async function verifySuperAdmin() {
     const supabase = await getAuthClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Ej inloggad")
-    const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-    if (profile?.role !== 'superadmin') throw new Error("Endast superadmins")
-    return { user, supabase }
+    const role = await getProfileRole(user.id, supabase)
+    if (!isSuperAdminRole(role)) throw new Error("Endast superadmins")
+    return { user, supabase, role: role as ProfileRole }
+}
+
+/** Read / monitor access — superadmin or superuser. */
+async function verifyPlatformStaff() {
+    const supabase = await getAuthClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error("Ej inloggad")
+    const role = await getProfileRole(user.id, supabase)
+    if (!isPlatformRole(role)) throw new Error("Endast plattformsanvändare")
+    return { user, supabase, role: role as ProfileRole }
+}
+
+export async function getMyPlatformRole() {
+    try {
+        const { role } = await verifyPlatformStaff()
+        return { success: true as const, role }
+    } catch (error: any) {
+        return { success: false as const, role: null as ProfileRole | null, error: error.message }
+    }
 }
 
 // ── Active org cookie ──
@@ -42,13 +68,9 @@ export async function setActiveOrganisation(orgId: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Ej inloggad")
 
-    const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
+    const role = await getProfileRole(user.id, supabase)
 
-    if (profile?.role !== 'superadmin') {
+    if (!isPlatformRole(role)) {
         const { data } = await supabase
             .from('organisation_members')
             .select('id')
@@ -69,7 +91,7 @@ export async function getActiveOrgId(): Promise<string | null> {
     return cookieStore.get('active_org_id')?.value ?? null
 }
 
-// ── Org CRUD ──
+// ── Org CRUD (superadmin only) ──
 
 export async function createOrganisation(formData: FormData) {
     try {
@@ -99,17 +121,7 @@ export async function createOrganisation(formData: FormData) {
         })
         if (settingsError) throw settingsError
 
-        // Ensure the creating superadmin can see/manage users in the new org
-        const { error: memberError } = await supabase
-            .from('organisation_members')
-            .upsert({
-                organisation_id: org.id,
-                user_id: user.id,
-                role: 'admin',
-                permissions: [],
-                is_active: true,
-            }, { onConflict: 'organisation_id,user_id' })
-        if (memberError) throw memberError
+        // Platform accounts are not org members — they access all orgs via role.
 
         await logAuditAction('create', 'organisation', org.id, { name, slug })
         return { success: true, organisation: org }
@@ -155,11 +167,11 @@ export async function deleteOrganisation(orgId: string) {
     }
 }
 
-// ── Orgs with member count (service role for accurate count) ──
+// ── Orgs with member count ──
 
 export async function getOrgsWithMemberCount() {
     try {
-        const { supabase } = await verifySuperAdmin()
+        const { supabase } = await verifyPlatformStaff()
         const { data: orgs } = await supabase
             .from('organisations')
             .select('*')
@@ -169,14 +181,25 @@ export async function getOrgsWithMemberCount() {
 
         const orgsWithCount = await Promise.all(
             orgs.map(async (org) => {
-                const { count } = await supabase
+                const { data: members } = await supabase
                     .from('organisation_members')
-                    .select('*', { count: 'exact', head: true })
+                    .select('user_id')
                     .eq('organisation_id', org.id)
                     .eq('is_active', true)
+
+                const ids = [...new Set((members ?? []).map(m => m.user_id).filter(Boolean))]
+                let count = 0
+                if (ids.length) {
+                    const { data: profiles } = await supabase
+                        .from('user_profiles')
+                        .select('id, role')
+                        .in('id', ids)
+                    count = (profiles ?? []).filter(p => !isPlatformRole(p.role)).length
+                }
+
                 return {
                     ...org,
-                    organisation_members: [{ count: count ?? 0 }],
+                    organisation_members: [{ count }],
                 }
             })
         )
@@ -186,29 +209,35 @@ export async function getOrgsWithMemberCount() {
     }
 }
 
-/** Distinct users that currently belong to at least one organisation. */
+/** Distinct org users (excludes platform superadmin/superuser accounts). */
 export async function getActiveUserCount() {
     try {
-        const { supabase } = await verifySuperAdmin()
+        const { supabase } = await verifyPlatformStaff()
         const { data, error } = await supabase
             .from('organisation_members')
             .select('user_id')
             .eq('is_active', true)
 
         if (error) throw error
-        return new Set((data ?? []).map(row => row.user_id).filter(Boolean)).size
+        const ids = [...new Set((data ?? []).map(row => row.user_id).filter(Boolean))]
+        if (!ids.length) return 0
+
+        const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, role')
+            .in('id', ids)
+
+        return (profiles ?? []).filter(p => !isPlatformRole(p.role)).length
     } catch {
         return 0
     }
 }
 
-// ── Org members ──
+// ── Org members (hide platform accounts) ──
 
 export async function getOrgMembers(orgId: string) {
-    const { supabase } = await verifySuperAdmin()
+    const { supabase } = await verifyPlatformStaff()
 
-    // organisation_members.user_id FKs auth.users, not user_profiles — so the
-    // PostgREST embed user_profiles(...) fails and previously returned [].
     const { data: members, error: memberError } = await supabase
         .from('organisation_members')
         .select('id, user_id, role, permissions, is_active, created_at')
@@ -227,21 +256,26 @@ export async function getOrgMembers(orgId: string) {
     if (profileError) throw profileError
 
     const profileById = new Map((profiles ?? []).map(p => [p.id, p]))
-    return members.map((m) => {
+    return members.flatMap((m) => {
         const profile = profileById.get(m.user_id)
-        return {
+        if (profile && isPlatformRole(profile.role)) return []
+        return [{
             ...m,
             permissions: Array.isArray(m.permissions) ? m.permissions : [],
             user_profiles: profile
                 ? { email: profile.email as string, role: profile.role as string }
                 : null,
-        }
+        }]
     })
 }
 
 export async function addOrgMember(orgId: string, userId: string, role: string, permissions: string[]) {
     try {
         const { supabase } = await verifySuperAdmin()
+        const profileRole = await getProfileRole(userId, supabase)
+        if (isPlatformRole(profileRole)) {
+            throw new Error("Superadmin/superanvändare tillhör inte organisationer.")
+        }
         const { error } = await supabase
             .from('organisation_members')
             .upsert({
@@ -290,8 +324,7 @@ export async function updateOrgMemberRole(orgId: string, userId: string, role: s
     }
 }
 
-// ── Get all users (for adding to orgs) ──
-
+/** Org-eligible users only (excludes platform accounts). */
 export async function getAllUsers() {
     try {
         const { supabase } = await verifySuperAdmin()
@@ -299,7 +332,7 @@ export async function getAllUsers() {
             .from('user_profiles')
             .select('id, email, role, permissions')
             .order('email')
-        return data ?? []
+        return (data ?? []).filter(u => !isPlatformRole(u.role))
     } catch {
         return []
     }

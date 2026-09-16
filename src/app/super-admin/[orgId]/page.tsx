@@ -10,7 +10,9 @@ import {
 import {
     updateOrganisation, getOrgMembers, setActiveOrganisation,
     addOrgMember, removeOrgMember, updateOrgMemberRole, getAllUsers,
+    getMyPlatformRole,
 } from "@/app/actions/org"
+import type { ProfileRole } from "@/lib/permissions"
 
 const ALL_PERMISSIONS = [
     { key: 'register', label: 'Register' },
@@ -64,6 +66,8 @@ export default function OrgDetailPage() {
     const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
     const [editRole, setEditRole] = useState("user")
     const [editPerms, setEditPerms] = useState<string[]>([])
+    const [myRole, setMyRole] = useState<ProfileRole | null>(null)
+    const canWrite = myRole === 'superadmin'
 
     const showMsg = (type: 'success' | 'error', text: string) => {
         setMessage({ type, text })
@@ -73,6 +77,9 @@ export default function OrgDetailPage() {
     const fetchAll = async () => {
         if (!supabase) return
         try {
+            const roleRes = await getMyPlatformRole()
+            if (roleRes.success) setMyRole(roleRes.role)
+
             // Org details
             const { data: orgData } = await supabase.from('organisations').select('*').eq('id', orgId).single()
             if (orgData) {
@@ -82,9 +89,11 @@ export default function OrgDetailPage() {
             // Members — fetch separately from profiles (no broken PostgREST embed)
             const membersData = await getOrgMembers(orgId)
             setMembers(membersData as OrgMember[])
-            // All users (for adding)
-            const users = await getAllUsers()
-            setAllUsers(users)
+            // All users (for adding) — only needed for writers
+            if (roleRes.role === 'superadmin') {
+                const users = await getAllUsers()
+                setAllUsers(users)
+            }
             // Stats
             try {
                 const [f, b, i, u] = await Promise.all([
@@ -284,16 +293,17 @@ export default function OrgDetailPage() {
             {/* MEMBERS TAB */}
             {activeTab === 'members' && (
                 <div className="space-y-4">
-                    {/* Add member */}
-                    <div className="flex justify-end">
-                        <button onClick={() => setShowAddMember(!showAddMember)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold"
-                            style={{ background: '#1A1A1A', color: '#FEFCF8' }}>
-                            <UserPlus size={14} /> Lägg till användare
-                        </button>
-                    </div>
+                    {canWrite && (
+                        <div className="flex justify-end">
+                            <button onClick={() => setShowAddMember(!showAddMember)}
+                                className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold"
+                                style={{ background: '#1A1A1A', color: '#FEFCF8' }}>
+                                <UserPlus size={14} /> Lägg till användare
+                            </button>
+                        </div>
+                    )}
 
-                    {showAddMember && (
+                    {canWrite && showAddMember && (
                         <div className="bg-card border border-border rounded-[14px] overflow-hidden shadow-sm">
                             <div className="px-6 py-4 border-b border-border font-semibold text-sm flex items-center gap-2" style={{ background: '#F7F3EC' }}>
                                 <UserPlus size={16} style={{ color: '#C9A84C' }} /> Lägg till användare i {org.name}
@@ -382,19 +392,23 @@ export default function OrgDetailPage() {
                                                         background: m.role === 'admin' ? '#FEF3C7' : m.role === 'superadmin' ? '#EDE9FE' : '#F3F4F6',
                                                         color: m.role === 'admin' ? '#92400E' : m.role === 'superadmin' ? '#5B21B6' : '#6B7280',
                                                     }}>{m.role}</span>
-                                                <button onClick={() => {
-                                                    if (isEditing) { setEditingMemberId(null) } else {
-                                                        setEditingMemberId(m.user_id); setEditRole(m.role); setEditPerms(m.permissions ?? [])
-                                                    }
-                                                }}
-                                                    className="text-xs px-2.5 py-1.5 rounded-[6px] font-medium transition-colors"
-                                                    style={{ background: isEditing ? '#C9A84C' : '#F7F3EC', color: isEditing ? 'white' : '#1A1A1A' }}>
-                                                    {isEditing ? 'Avbryt' : 'Redigera'}
-                                                </button>
-                                                <button onClick={() => handleRemoveMember(m.user_id, m.user_profiles?.email ?? '')}
-                                                    className="p-1.5 rounded-[6px] hover:bg-red-50 transition-colors">
-                                                    <Trash2 size={13} className="text-red-400" />
-                                                </button>
+                                                {canWrite && (
+                                                    <>
+                                                        <button onClick={() => {
+                                                            if (isEditing) { setEditingMemberId(null) } else {
+                                                                setEditingMemberId(m.user_id); setEditRole(m.role); setEditPerms(m.permissions ?? [])
+                                                            }
+                                                        }}
+                                                            className="text-xs px-2.5 py-1.5 rounded-[6px] font-medium transition-colors"
+                                                            style={{ background: isEditing ? '#C9A84C' : '#F7F3EC', color: isEditing ? 'white' : '#1A1A1A' }}>
+                                                            {isEditing ? 'Avbryt' : 'Redigera'}
+                                                        </button>
+                                                        <button onClick={() => handleRemoveMember(m.user_id, m.user_profiles?.email ?? '')}
+                                                            className="p-1.5 rounded-[6px] hover:bg-red-50 transition-colors">
+                                                            <Trash2 size={13} className="text-red-400" />
+                                                        </button>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                         {/* Edit inline */}
@@ -452,6 +466,7 @@ export default function OrgDetailPage() {
 
             {/* SETTINGS TAB */}
             {activeTab === 'settings' && (
+                canWrite ? (
                 <div className="bg-card border border-border rounded-[14px] overflow-hidden shadow-sm">
                     <div className="px-6 py-4 border-b border-border font-semibold text-sm flex items-center gap-2" style={{ background: '#F7F3EC' }}>
                         <Settings size={16} style={{ color: '#C9A84C' }} /> Organisationsinställningar
@@ -464,7 +479,7 @@ export default function OrgDetailPage() {
                         <div className="space-y-1.5">
                             <label className="text-sm font-semibold">Slug (URL)</label>
                             <input className="input-premium" value={slug} onChange={(e) => setSlug(e.target.value)} />
-                            <p className="text-xs text-muted-foreground">Unik identifierare, t.ex. "stockholm-kyrkan"</p>
+                            <p className="text-xs text-muted-foreground">Unik identifierare, t.ex. &quot;stockholm-kyrkan&quot;</p>
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-sm font-semibold">Primärfärg</label>
@@ -497,6 +512,11 @@ export default function OrgDetailPage() {
                         </div>
                     </div>
                 </div>
+                ) : (
+                    <div className="p-6 rounded-[14px] border text-sm" style={{ background: '#F7F3EC', borderColor: '#E5E0D8', color: '#6B6355' }}>
+                        Organisationsinställningar är skrivskyddade för super användare.
+                    </div>
+                )
             )}
         </div>
     )

@@ -39,6 +39,7 @@ export default function OrgSelector({
     const roleLabel = (role: string) => {
         switch (role) {
             case 'superadmin': return 'Super Admin'
+            case 'superuser': return 'Super användare'
             case 'admin': return 'Admin'
             default: return 'Användare'
         }

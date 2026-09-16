@@ -57,9 +57,9 @@ export async function updateSession(request: NextRequest) {
             if (profile) {
                 const { role } = profile
 
-                // /super-admin — only superadmins
+                // /super-admin — superadmin + superuser (read-only for superuser)
                 if (pathname.startsWith('/super-admin')) {
-                    if (role !== 'superadmin') {
+                    if (role !== 'superadmin' && role !== 'superuser') {
                         const redirectUrl = request.nextUrl.clone()
                         redirectUrl.pathname = '/'
                         return NextResponse.redirect(redirectUrl)
@@ -80,7 +80,7 @@ export async function updateSession(request: NextRequest) {
                 }
 
                 const adminOnlyRoutes = ['/anvandare', '/loggar']
-                if (role !== 'superadmin' && !isOrgAdmin) {
+                if (role !== 'superadmin' && role !== 'superuser' && !isOrgAdmin) {
                     if (adminOnlyRoutes.some(route => pathname.startsWith(route))) {
                         const redirectUrl = request.nextUrl.clone()
                         redirectUrl.pathname = '/'
@@ -88,10 +88,22 @@ export async function updateSession(request: NextRequest) {
                     }
                 }
 
-                if (role !== 'superadmin' && !activeOrgId) {
+                // Superusers may browse dashboards without an org cookie briefly,
+                // but normally set one via "Visa". Platform staff skip the cookie requirement.
+                if (role !== 'superadmin' && role !== 'superuser' && !activeOrgId) {
                     const redirectUrl = request.nextUrl.clone()
                     redirectUrl.pathname = '/login'
                     return NextResponse.redirect(redirectUrl)
+                }
+
+                // Superuser: block write-oriented org admin pages
+                if (role === 'superuser') {
+                    const blocked = ['/anvandare', '/installningar', '/loggar']
+                    if (blocked.some(route => pathname.startsWith(route))) {
+                        const redirectUrl = request.nextUrl.clone()
+                        redirectUrl.pathname = '/super-admin'
+                        return NextResponse.redirect(redirectUrl)
+                    }
                 }
             }
         }

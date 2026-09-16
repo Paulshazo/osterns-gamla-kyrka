@@ -13,6 +13,8 @@ interface OrgContextValue {
     orgRole: string | null
     permissions: string[]
     isSuperAdmin: boolean
+    isSuperUser: boolean
+    isPlatformStaff: boolean
     isOrgAdmin: boolean
     canManageUsers: boolean
     canSwitchOrg: boolean
@@ -31,6 +33,8 @@ const defaultContext: OrgContextValue = {
     orgRole: null,
     permissions: [],
     isSuperAdmin: false,
+    isSuperUser: false,
+    isPlatformStaff: false,
     isOrgAdmin: false,
     canManageUsers: false,
     canSwitchOrg: false,
@@ -91,7 +95,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
                     .eq('id', user.id)
                     .single()
 
-                if (profile?.role === 'superadmin' || profile?.role === 'admin' || profile?.role === 'user') {
+                if (profile?.role === 'superadmin' || profile?.role === 'superuser' || profile?.role === 'admin' || profile?.role === 'user') {
                     nextProfileRole = profile.role
                 }
                 nextPermissions = Array.isArray(profile?.permissions) ? profile.permissions : []
@@ -149,16 +153,20 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     useEffect(() => { fetchOrg() }, [fetchOrg])
 
     const isSuperAdmin = profileRole === 'superadmin'
-    const isOrgAdmin = isSuperAdmin || orgRole === 'admin' || profileRole === 'admin'
+    const isSuperUser = profileRole === 'superuser'
+    const isPlatformStaff = isSuperAdmin || isSuperUser
+    // Superuser monitors only — never treated as org admin for edits.
+    const isOrgAdmin = isSuperAdmin || (!isSuperUser && (orgRole === 'admin' || profileRole === 'admin'))
     const canManageUsers = isOrgAdmin
     const canExport = isOrgAdmin
-    const canSwitchOrg = isSuperAdmin || membershipCount > 1
+    const canSwitchOrg = isPlatformStaff || membershipCount > 1
 
     const canEdit = useCallback((section: Department) => {
         if (loading) return false
+        if (isSuperUser) return false
         if (isOrgAdmin) return true
         return permissions.includes(section)
-    }, [loading, isOrgAdmin, permissions])
+    }, [loading, isOrgAdmin, isSuperUser, permissions])
 
     return (
         <OrgContext.Provider value={{
@@ -170,6 +178,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
             orgRole,
             permissions,
             isSuperAdmin,
+            isSuperUser,
+            isPlatformStaff,
             isOrgAdmin,
             canManageUsers,
             canSwitchOrg,

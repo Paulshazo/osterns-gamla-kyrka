@@ -49,7 +49,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const { language, setLanguage, t } = useLanguage()
     const {
         activeOrgId, activeOrgName, activeOrgLogo, activeOrgColor,
-        isSuperAdmin, isOrgAdmin, canManageUsers, canSwitchOrg,
+        isSuperAdmin, isSuperUser, isPlatformStaff, isOrgAdmin, canManageUsers, canSwitchOrg,
     } = useActiveOrg()
     const [adminTitle, setAdminTitle]   = useState("Kyrkoregistret")
     const [adminLogoUrl, setAdminLogoUrl] = useState<string | null>(null)
@@ -105,7 +105,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
         return true
     }
 
-    const roleLabel = isSuperAdmin ? 'SUPERADMIN' : isOrgAdmin ? 'ADMIN' : 'ANVÄNDARE'
+    const roleLabel = isSuperAdmin ? 'SUPERADMIN' : isSuperUser ? 'SUPER ANVÄNDARE' : isOrgAdmin ? 'ADMIN' : 'ANVÄNDARE'
 
     return (
         <div className="flex h-full flex-col" style={{ background: '#1C1C1C' }}>
@@ -194,8 +194,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                     )
                 })}
 
-                {/* Super Admin link for superadmins */}
-                {isSuperAdmin && (
+                {/* Super Admin link for platform staff */}
+                {isPlatformStaff && (
                     <Link
                         href="/super-admin"
                         onClick={onClose}
