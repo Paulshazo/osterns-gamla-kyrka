@@ -6,7 +6,7 @@ import {
     Building2, Plus, Users, Loader2, CheckCircle, XCircle,
     Eye, ArrowRight, ScrollText, BarChart3, Trash2,
 } from "lucide-react"
-import { createOrganisation, setActiveOrganisation, deleteOrganisation, getOrgsWithMemberCount } from "@/app/actions/org"
+import { createOrganisation, setActiveOrganisation, deleteOrganisation, getOrgsWithMemberCount, getActiveUserCount } from "@/app/actions/org"
 
 interface Organisation {
     id: string
@@ -50,9 +50,8 @@ export default function SuperAdminPage() {
             const orgsWithCount = await getOrgsWithMemberCount()
             setOrgs(orgsWithCount ?? data ?? [])
 
-            // Global stats
-            const { count: usersCount } = await supabase.from('user_profiles').select('id', { count: 'exact', head: true })
-            setTotalUsers(usersCount ?? 0)
+            // Only users currently active in an organisation (not orphaned profiles)
+            setTotalUsers(await getActiveUserCount())
             const { count: famCount } = await supabase.from('familjer').select('id', { count: 'exact', head: true })
             setTotalFamilies(famCount ?? 0)
         } catch { /* ignore */ }
@@ -119,7 +118,7 @@ export default function SuperAdminPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                     { label: 'Organisationer', value: orgs.length, icon: Building2, color: '#C9A84C' },
-                    { label: 'Totala användare', value: totalUsers, icon: Users, color: '#6366F1' },
+                    { label: 'Aktiva användare', value: totalUsers, icon: Users, color: '#6366F1' },
                     { label: 'Totala familjer', value: totalFamilies, icon: Users, color: '#22C55E' },
                     { label: 'Aktiva orgs', value: orgs.filter(o => o.is_active).length, icon: CheckCircle, color: '#22C55E' },
                 ].map(s => (

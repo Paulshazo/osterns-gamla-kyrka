@@ -173,6 +173,7 @@ export async function getOrgsWithMemberCount() {
                     .from('organisation_members')
                     .select('*', { count: 'exact', head: true })
                     .eq('organisation_id', org.id)
+                    .eq('is_active', true)
                 return {
                     ...org,
                     organisation_members: [{ count: count ?? 0 }],
@@ -182,6 +183,22 @@ export async function getOrgsWithMemberCount() {
         return orgsWithCount
     } catch {
         return []
+    }
+}
+
+/** Distinct users that currently belong to at least one organisation. */
+export async function getActiveUserCount() {
+    try {
+        const { supabase } = await verifySuperAdmin()
+        const { data, error } = await supabase
+            .from('organisation_members')
+            .select('user_id')
+            .eq('is_active', true)
+
+        if (error) throw error
+        return new Set((data ?? []).map(row => row.user_id).filter(Boolean)).size
+    } catch {
+        return 0
     }
 }
 
