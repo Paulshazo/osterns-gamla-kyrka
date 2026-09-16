@@ -72,29 +72,34 @@ export default function OrgDetailPage() {
 
     const fetchAll = async () => {
         if (!supabase) return
-        // Org details
-        const { data: orgData } = await supabase.from('organisations').select('*').eq('id', orgId).single()
-        if (orgData) {
-            setOrg(orgData); setName(orgData.name); setSlug(orgData.slug)
-            setIsActive(orgData.is_active); setPrimaryColor(orgData.primary_color || '#C9A84C')
-        }
-        // Members
-        const membersData = await getOrgMembers(orgId)
-        setMembers(membersData)
-        // All users (for adding)
-        const users = await getAllUsers()
-        setAllUsers(users)
-        // Stats
         try {
-            const [f, b, i, u] = await Promise.all([
-                supabase.from('familjer').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
-                supabase.from('betalningar').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
-                supabase.from('intakter').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
-                supabase.from('utgifter').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
-            ])
-            setStats({ familjer: f.count ?? 0, betalningar: b.count ?? 0, intakter: i.count ?? 0, utgifter: u.count ?? 0 })
-        } catch { /* ignore */ }
-        setLoading(false)
+            // Org details
+            const { data: orgData } = await supabase.from('organisations').select('*').eq('id', orgId).single()
+            if (orgData) {
+                setOrg(orgData); setName(orgData.name); setSlug(orgData.slug)
+                setIsActive(orgData.is_active); setPrimaryColor(orgData.primary_color || '#C9A84C')
+            }
+            // Members — fetch separately from profiles (no broken PostgREST embed)
+            const membersData = await getOrgMembers(orgId)
+            setMembers(membersData as OrgMember[])
+            // All users (for adding)
+            const users = await getAllUsers()
+            setAllUsers(users)
+            // Stats
+            try {
+                const [f, b, i, u] = await Promise.all([
+                    supabase.from('familjer').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
+                    supabase.from('betalningar').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
+                    supabase.from('intakter').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
+                    supabase.from('utgifter').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
+                ])
+                setStats({ familjer: f.count ?? 0, betalningar: b.count ?? 0, intakter: i.count ?? 0, utgifter: u.count ?? 0 })
+            } catch { /* ignore */ }
+        } catch (err: any) {
+            showMsg('error', err?.message || 'Kunde inte ladda organisationen')
+        } finally {
+            setLoading(false)
+        }
     }
 
     useEffect(() => { fetchAll() }, [supabase, orgId])

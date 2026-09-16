@@ -148,18 +148,24 @@ export async function createUserAction(formData: FormData) {
             if (!authData.user) throw new Error("Kunde inte skapa användare.")
             newUserId = authData.user.id
 
-            const { error: updateError } = await supabaseAdmin
-                .from('user_profiles')
-                .update({
-                    role: role,
-                    permissions: permissionsArray,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', newUserId)
-
+            // Profile is created by a DB trigger — retry briefly if it is not ready yet
+            let updateError: { message: string } | null = null
+            for (let i = 0; i < 5; i++) {
+                const { error } = await supabaseAdmin
+                    .from('user_profiles')
+                    .update({
+                        role: role,
+                        permissions: permissionsArray,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', newUserId)
+                updateError = error
+                if (!error) break
+                await new Promise(resolve => setTimeout(resolve, 250))
+            }
             if (updateError) throw updateError
 
-            await supabaseAdmin
+            const { error: memberError } = await supabaseAdmin
                 .from('organisation_members')
                 .upsert({
                     organisation_id: activeOrgId,
@@ -168,6 +174,7 @@ export async function createUserAction(formData: FormData) {
                     permissions: permissionsArray,
                     is_active: true,
                 }, { onConflict: 'organisation_id,user_id' })
+            if (memberError) throw memberError
         } else {
             const detached = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
                 auth: { autoRefreshToken: false, persistSession: false }
@@ -321,22 +328,27 @@ export async function deleteUserAction(userId: string) {
 
 export async function listOrganisationUsers() {
     try {
-        const { user } = await verifyAdminAccess()
+        const { user, role: currentUserRole } = await verifyAdminAccess()
         const orgId = await getActiveOrgId()
         if (!orgId) {
             return { success: false as const, users: [], error: 'Ingen organisation vald' }
         }
 
-        const supabase = await getAuthClient()
+        const authClient = await getAuthClient()
+        // Prefer service role so newly linked members are always visible even when
+        // RLS profile policies are stricter than org-admin membership checks.
+        const queryClient = tryServiceRoleClient() ?? authClient
 
-        await supabase.from('organisation_members').upsert({
-            organisation_id: orgId,
-            user_id: user.id,
-            role: 'admin',
-            is_active: true,
-        }, { onConflict: 'organisation_id,user_id', ignoreDuplicates: true })
+        if (currentUserRole === 'superadmin' || currentUserRole === 'admin') {
+            await queryClient.from('organisation_members').upsert({
+                organisation_id: orgId,
+                user_id: user.id,
+                role: 'admin',
+                is_active: true,
+            }, { onConflict: 'organisation_id,user_id', ignoreDuplicates: true })
+        }
 
-        const { data: members, error: memberError } = await supabase
+        const { data: members, error: memberError } = await queryClient
             .from('organisation_members')
             .select('user_id, role, permissions, created_at')
             .eq('organisation_id', orgId)
@@ -347,7 +359,7 @@ export async function listOrganisationUsers() {
         const ids = [...new Set((members ?? []).map(m => m.user_id).filter(Boolean))]
         if (!ids.includes(user.id)) ids.push(user.id)
 
-        const { data: profiles, error: profileError } = await supabase
+        const { data: profiles, error: profileError } = await queryClient
             .from('user_profiles')
             .select('id, email, role, permissions, created_at')
             .in('id', ids)

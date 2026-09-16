@@ -91,12 +91,25 @@ export async function createOrganisation(formData: FormData) {
             .single()
         if (error) throw error
 
-        await supabase.from('app_settings').insert({
+        const { error: settingsError } = await supabase.from('app_settings').insert({
             organisation_id: org.id,
             admin_title: name,
             login_title: 'Välkommen',
             login_subtitle: `Logga in på ${name}`,
         })
+        if (settingsError) throw settingsError
+
+        // Ensure the creating superadmin can see/manage users in the new org
+        const { error: memberError } = await supabase
+            .from('organisation_members')
+            .upsert({
+                organisation_id: org.id,
+                user_id: user.id,
+                role: 'admin',
+                permissions: [],
+                is_active: true,
+            }, { onConflict: 'organisation_id,user_id' })
+        if (memberError) throw memberError
 
         await logAuditAction('create', 'organisation', org.id, { name, slug })
         return { success: true, organisation: org }
@@ -176,12 +189,37 @@ export async function getOrgsWithMemberCount() {
 
 export async function getOrgMembers(orgId: string) {
     const { supabase } = await verifySuperAdmin()
-    const { data } = await supabase
+
+    // organisation_members.user_id FKs auth.users, not user_profiles — so the
+    // PostgREST embed user_profiles(...) fails and previously returned [].
+    const { data: members, error: memberError } = await supabase
         .from('organisation_members')
-        .select('*, user_profiles(email, role)')
+        .select('id, user_id, role, permissions, is_active, created_at')
         .eq('organisation_id', orgId)
         .order('created_at')
-    return data ?? []
+
+    if (memberError) throw memberError
+    if (!members?.length) return []
+
+    const ids = [...new Set(members.map(m => m.user_id).filter(Boolean))]
+    const { data: profiles, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('id, email, role')
+        .in('id', ids)
+
+    if (profileError) throw profileError
+
+    const profileById = new Map((profiles ?? []).map(p => [p.id, p]))
+    return members.map((m) => {
+        const profile = profileById.get(m.user_id)
+        return {
+            ...m,
+            permissions: Array.isArray(m.permissions) ? m.permissions : [],
+            user_profiles: profile
+                ? { email: profile.email as string, role: profile.role as string }
+                : null,
+        }
+    })
 }
 
 export async function addOrgMember(orgId: string, userId: string, role: string, permissions: string[]) {
