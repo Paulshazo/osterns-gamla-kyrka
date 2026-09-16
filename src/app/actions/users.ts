@@ -427,32 +427,33 @@ export async function listOrganisationUsers() {
     }
 }
 
-export async function listPlatformUsers() {
+/** All super användare — superadmin only. Prefers service role for reliable listing. */
+export async function listSuperUsers() {
     try {
         const supabaseAuth = await getAuthClient()
         const { data: { user } } = await supabaseAuth.auth.getUser()
         if (!user) throw new Error('Ej inloggad')
 
-        const supabase = tryServiceRoleClient() ?? supabaseAuth
-        const { data: me } = await supabase
+        const queryClient = tryServiceRoleClient() ?? supabaseAuth
+        const { data: me } = await queryClient
             .from('user_profiles')
             .select('role')
             .eq('id', user.id)
             .single()
-        if (!isPlatformRole(me?.role)) throw new Error('Endast plattformsanvändare')
 
-        const { data, error } = await supabase
+        if (!isSuperAdminRole(me?.role)) {
+            throw new Error('Endast superadmin kan hantera super användare.')
+        }
+
+        const { data, error } = await queryClient
             .from('user_profiles')
             .select('id, email, role, created_at')
-            .in('role', ['superadmin', 'superuser'])
+            .eq('role', 'superuser')
             .order('email')
+
         if (error) throw error
 
-        const users = [...(data ?? [])].sort((a, b) => {
-            if (a.role === b.role) return (a.email ?? '').localeCompare(b.email ?? '')
-            return a.role === 'superadmin' ? -1 : 1
-        })
-        return { success: true as const, users }
+        return { success: true as const, users: data ?? [] }
     } catch (error: any) {
         return { success: false as const, users: [], error: error.message }
     }
