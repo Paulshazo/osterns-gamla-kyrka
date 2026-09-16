@@ -121,13 +121,17 @@ export default function UsersPage() {
 
     const handleDeleteConfirm = async () => {
         if (!deleteTarget) return
-        if (deleteTarget.role === 'superadmin' && currentUserRole !== 'superadmin') {
+        if (deleteTarget.role === 'superadmin') {
+            setErrorMsg(language === 'sv'
+                ? 'Superadmin-konton kan inte raderas.'
+                : 'Superadmin accounts cannot be deleted.')
             setDeleteTarget(null)
             return
         }
         const result = await deleteUserAction(deleteTarget.id)
         setDeleteTarget(null)
         if (result.success) fetchUsers()
+        else if (result.error) setErrorMsg(result.error)
     }
 
     const togglePerm = (id: string, perms: string[], setPerms: (p: string[]) => void) =>
@@ -295,8 +299,11 @@ export default function UsersPage() {
                                                     <button
                                                         onClick={() => setDeleteTarget(user)}
                                                         aria-label={language === 'sv' ? 'Radera' : 'Delete'}
-                                                        disabled={user.role === 'superadmin' && currentUserRole !== 'superadmin'}
-                                                        className="p-1.5 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-30">
+                                                        disabled={user.role === 'superadmin'}
+                                                        title={user.role === 'superadmin'
+                                                            ? (language === 'sv' ? 'Superadmin-konton kan inte raderas' : 'Superadmin accounts cannot be deleted')
+                                                            : undefined}
+                                                        className="p-1.5 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-30 disabled:hover:bg-transparent">
                                                         <Trash2 size={14} style={{ color: '#C0392B' }} />
                                                     </button>
                                                 </div>
@@ -404,11 +411,24 @@ export default function UsersPage() {
                                     <label className="text-sm font-semibold">{language === 'sv' ? 'Roll' : 'Role'}</label>
                                     <select className="input-premium" value={editRole}
                                         onChange={e => setEditRole(e.target.value as any)}
-                                        disabled={selectedUser.role === 'superadmin' && currentUserRole !== 'superadmin'}>
-                                        <option value="user">{language === 'sv' ? 'Användare' : 'User'}</option>
-                                        <option value="admin">{language === 'sv' ? 'Administratör' : 'Administrator'}</option>
-                                        {currentUserRole === 'superadmin' && <option value="superadmin">Superadmin</option>}
+                                        disabled={selectedUser.role === 'superadmin'}>
+                                        {selectedUser.role !== 'superadmin' && (
+                                            <>
+                                                <option value="user">{language === 'sv' ? 'Användare' : 'User'}</option>
+                                                <option value="admin">{language === 'sv' ? 'Administratör' : 'Administrator'}</option>
+                                            </>
+                                        )}
+                                        {(currentUserRole === 'superadmin' || selectedUser.role === 'superadmin') && (
+                                            <option value="superadmin">Superadmin</option>
+                                        )}
                                     </select>
+                                    {selectedUser.role === 'superadmin' && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {language === 'sv'
+                                                ? 'Superadmin-rollen kan inte ändras eller raderas.'
+                                                : 'The superadmin role cannot be changed or deleted.'}
+                                        </p>
+                                    )}
                                 </div>
                                 {editRole === 'user' && (
                                     <div className="space-y-2">

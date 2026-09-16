@@ -233,6 +233,10 @@ export async function updateUserRoleAndPermissions(userId: string, role: string,
 
         const { data: targetUser } = await supabase.from('user_profiles').select('role').eq('id', userId).single()
 
+        if (targetUser?.role === 'superadmin' && role !== 'superadmin') {
+            throw new Error("Superadmin-rollen kan inte tas bort från ett konto.")
+        }
+
         if (targetUser?.role === 'superadmin' && currentUserRole !== 'superadmin') {
             throw new Error("Endast superadmins kan ändra rättigheter för andra superadmins.")
         }
@@ -299,8 +303,8 @@ export async function deleteUserAction(userId: string) {
             .eq('id', userId)
             .single()
 
-        if (targetUser?.role === 'superadmin' && currentUserRole !== 'superadmin') {
-            throw new Error("Endast superadmins kan radera en annan superadmin.")
+        if (targetUser?.role === 'superadmin') {
+            throw new Error("Superadmin-konton kan inte raderas.")
         }
 
         if (supabaseAdmin) {
