@@ -458,6 +458,36 @@ export async function listPlatformUsers() {
     }
 }
 
+async function finalizeSuperUserProfile(
+    client: Awaited<ReturnType<typeof getAuthClient>>,
+    userId: string,
+) {
+    let updateError: { message: string } | null = null
+    for (let i = 0; i < 5; i++) {
+        const { error } = await client
+            .from('user_profiles')
+            .update({
+                role: 'superuser',
+                permissions: [],
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', userId)
+        updateError = error
+        if (!error) break
+        await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    if (updateError) throw updateError
+
+    await client
+        .from('organisation_members')
+        .delete()
+        .eq('user_id', userId)
+}
+
+export async function isServiceRoleConfigured() {
+    return { configured: tryServiceRoleClient() !== null }
+}
+
 export async function createSuperUserAction(formData: FormData) {
     try {
         const { role: currentUserRole } = await verifyAdminAccess()
@@ -471,40 +501,33 @@ export async function createSuperUserAction(formData: FormData) {
         if (password.length < 8) throw new Error('Lösenordet måste vara minst 8 tecken.')
 
         const supabaseAdmin = tryServiceRoleClient()
-        if (!supabaseAdmin) {
-            throw new Error('SUPABASE_SERVICE_ROLE_KEY saknas — krävs för att skapa konton.')
+        let newUserId: string
+
+        if (supabaseAdmin) {
+            const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+                email,
+                password,
+                email_confirm: true,
+            })
+            if (createError) throw createError
+            if (!authData.user) throw new Error('Kunde inte skapa användare.')
+            newUserId = authData.user.id
+            await finalizeSuperUserProfile(supabaseAdmin, newUserId)
+        } else {
+            const detached = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
+                auth: { autoRefreshToken: false, persistSession: false },
+            })
+            const { data: signUpData, error: signUpError } = await detached.auth.signUp({
+                email,
+                password,
+            })
+            if (signUpError) throw signUpError
+            if (!signUpData.user) throw new Error('Kunde inte skapa användare.')
+            newUserId = signUpData.user.id
+
+            const supabase = await getAuthClient()
+            await finalizeSuperUserProfile(supabase, newUserId)
         }
-
-        const { data: authData, error: createError } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-        })
-        if (createError) throw createError
-        if (!authData.user) throw new Error('Kunde inte skapa användare.')
-        const newUserId = authData.user.id
-
-        let updateError: { message: string } | null = null
-        for (let i = 0; i < 5; i++) {
-            const { error } = await supabaseAdmin
-                .from('user_profiles')
-                .update({
-                    role: 'superuser',
-                    permissions: [],
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', newUserId)
-            updateError = error
-            if (!error) break
-            await new Promise(resolve => setTimeout(resolve, 250))
-        }
-        if (updateError) throw updateError
-
-        // Ensure they are not members of any organisation
-        await supabaseAdmin
-            .from('organisation_members')
-            .delete()
-            .eq('user_id', newUserId)
 
         await logAuditAction('create', 'user', newUserId, { email, role: 'superuser' })
         return { success: true, message: 'Superanvändare skapad!' }
@@ -525,7 +548,12 @@ export async function deleteSuperUserAction(userId: string) {
         }
 
         const supabaseAdmin = tryServiceRoleClient()
-        if (!supabaseAdmin) throw new Error('SUPABASE_SERVICE_ROLE_KEY saknas.')
+        if (!supabaseAdmin) {
+            throw new Error(
+                'SUPABASE_SERVICE_ROLE_KEY saknas — krävs för att radera konton. ' +
+                'Lägg till nyckeln i Vercel → Settings → Environment Variables och deploya om.'
+            )
+        }
 
         const { data: target } = await supabaseAdmin
             .from('user_profiles')

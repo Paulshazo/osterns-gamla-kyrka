@@ -7,7 +7,7 @@ import {
 } from "lucide-react"
 import { changePasswordAction } from "@/app/actions/settings"
 import {
-    createSuperUserAction, deleteSuperUserAction, listPlatformUsers,
+    createSuperUserAction, deleteSuperUserAction, isServiceRoleConfigured, listPlatformUsers,
 } from "@/app/actions/users"
 import { getMyPlatformRole } from "@/app/actions/org"
 import type { ProfileRole } from "@/lib/permissions"
@@ -37,6 +37,7 @@ export default function SuperAdminSettingsPage() {
     const [password, setPassword] = useState("")
     const [showCreatePw, setShowCreatePw] = useState(false)
     const [creating, setCreating] = useState(false)
+    const [serviceRoleMissing, setServiceRoleMissing] = useState(false)
 
     const isAdmin = role === 'superadmin'
 
@@ -46,9 +47,14 @@ export default function SuperAdminSettingsPage() {
     }
 
     const refresh = async () => {
-        const [me, list] = await Promise.all([getMyPlatformRole(), listPlatformUsers()])
+        const [me, list, svc] = await Promise.all([
+            getMyPlatformRole(),
+            listPlatformUsers(),
+            isServiceRoleConfigured(),
+        ])
         if (me.success) setRole(me.role)
         if (list.success) setUsers(list.users as PlatformUser[])
+        setServiceRoleMissing(!svc.configured)
         setLoading(false)
     }
 
@@ -82,7 +88,11 @@ export default function SuperAdminSettingsPage() {
             setEmail(""); setPassword("")
             await refresh()
         } else {
-            showMsg('error', result.error || 'Kunde inte skapa.')
+            const errText = result.error || 'Kunde inte skapa.'
+            if (errText.includes('SUPABASE_SERVICE_ROLE_KEY')) {
+                setServiceRoleMissing(true)
+            }
+            showMsg('error', errText)
         }
         setCreating(false)
     }
@@ -125,6 +135,22 @@ export default function SuperAdminSettingsPage() {
                 <div className={`p-4 rounded-[10px] text-sm border font-medium ${
                     message.type === 'success' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
                 }`}>{message.text}</div>
+            )}
+
+            {serviceRoleMissing && isAdmin && (
+                <div className="p-4 rounded-[14px] border text-sm" style={{ background: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}>
+                    <p className="font-bold mb-2">SUPABASE_SERVICE_ROLE_KEY saknas i Vercel</p>
+                    <p className="mb-3">
+                        Du kan fortfarande <strong>skapa super användare</strong> nedan (via signup).
+                        Nyckeln behövs för att radera konton och är rekommenderad för produktion.
+                    </p>
+                    <ol className="list-decimal list-inside space-y-1.5 text-xs">
+                        <li>Supabase → <strong>Project Settings → API</strong> → kopiera <strong>service_role</strong></li>
+                        <li>Vercel → <strong>Project → Settings → Environment Variables</strong></li>
+                        <li>Lägg till: <code className="font-mono bg-amber-100 px-1 rounded">SUPABASE_SERVICE_ROLE_KEY</code></li>
+                        <li>Spara för Production och gör en ny deploy</li>
+                    </ol>
+                </div>
             )}
 
             {/* Password */}
