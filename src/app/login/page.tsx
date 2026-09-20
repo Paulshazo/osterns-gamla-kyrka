@@ -31,7 +31,7 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null)
     const [loginTitle, setLoginTitle] = useState("")
     const [loginLogoUrl, setLoginLogoUrl] = useState<string | null>("/orgs/osterns-gamla-kyrka-login.png")
-    const [loginLogoSize, setLoginLogoSize] = useState(140)
+    const [loginLogoSize, setLoginLogoSize] = useState(176)
     const [organisations, setOrganisations] = useState<OrgOption[]>([])
     const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 

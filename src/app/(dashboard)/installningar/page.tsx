@@ -36,7 +36,7 @@ export default function SettingsPage() {
         login_title:       "",
         login_subtitle:    "Logga in på medlemsregistret",
         login_logo_url:    "/orgs/osterns-gamla-kyrka-login.png",
-        login_logo_size:   140,
+        login_logo_size:   176,
         resend_api_key:    "",
         resend_from_email: "",
         resend_from_name:  "Kyrkoregistret",
