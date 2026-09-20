@@ -49,7 +49,7 @@ export default function LoginPage() {
                     if (data.login_logo_url) setLoginLogoUrl(data.login_logo_url)
                     else setLoginLogoUrl("/orgs/osterns-gamla-kyrka-login.png")
                     if (data.login_logo_size) setLoginLogoSize(data.login_logo_size)
-                    else setLoginLogoSize(140)
+                    else setLoginLogoSize(176)
                 }
             } catch { /* ignore */ }
         }
@@ -176,7 +176,7 @@ export default function LoginPage() {
                                         <img
                                             src={loginLogoUrl || "/orgs/osterns-gamla-kyrka-login.png"}
                                             alt="Osterns Gamla Kyrka"
-                                            style={{ height: `${loginLogoSize}px`, maxWidth: '280px', width: 'auto', objectFit: 'contain' }}
+                                            style={{ height: `${loginLogoSize}px`, maxWidth: '340px', width: 'auto', objectFit: 'contain' }}
                                         />
                                     </div>
                                     {loginTitle ? (

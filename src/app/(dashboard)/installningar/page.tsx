@@ -385,7 +385,7 @@ export default function SettingsPage() {
                                 <img
                                     src={settings.login_logo_url}
                                     alt="Login logo preview"
-                                    style={{ height: Math.min(settings.login_logo_size, 120), maxWidth: '220px', width: 'auto', objectFit: 'contain' }}
+                                    style={{ height: Math.min(settings.login_logo_size, 176), maxWidth: '340px', width: 'auto', objectFit: 'contain' }}
                                     onError={(e) => (e.currentTarget.style.display = 'none')}
                                 />
                             ) : (
