@@ -5,8 +5,9 @@ import { useParams, useRouter } from "next/navigation"
 import { createClient } from "@/utils/supabase/client"
 import {
     ArrowLeft, Users, Settings, Loader2, CheckCircle, XCircle,
-    Save, BarChart3, UserPlus, Trash2, Eye, Shield, CreditCard,
+    Save, BarChart3, UserPlus, Trash2, Eye, Shield, CreditCard, FileText,
 } from "lucide-react"
+import { OrganisationDocumentsPanel } from "@/components/organisation-documents-panel"
 import {
     updateOrganisation, getOrgMembers, setActiveOrganisation,
     addOrgMember, removeOrgMember, updateOrgMemberRole, getAllUsers,
@@ -47,7 +48,8 @@ export default function OrgDetailPage() {
     const [allUsers, setAllUsers] = useState<UserProfile[]>([])
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
     const [stats, setStats] = useState({ familjer: 0, betalningar: 0, intakter: 0, utgifter: 0 })
-    const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'settings'>('overview')
+    const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'documents' | 'settings'>('overview')
+    const [documentCount, setDocumentCount] = useState(0)
 
     // Edit org fields
     const [name, setName] = useState("")
@@ -96,13 +98,15 @@ export default function OrgDetailPage() {
             }
             // Stats
             try {
-                const [f, b, i, u] = await Promise.all([
+                const [f, b, i, u, d] = await Promise.all([
                     supabase.from('familjer').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
                     supabase.from('betalningar').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
                     supabase.from('intakter').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
                     supabase.from('utgifter').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
+                    supabase.from('organisation_documents').select('id', { count: 'exact', head: true }).eq('organisation_id', orgId),
                 ])
                 setStats({ familjer: f.count ?? 0, betalningar: b.count ?? 0, intakter: i.count ?? 0, utgifter: u.count ?? 0 })
+                setDocumentCount(d.count ?? 0)
             } catch { /* ignore */ }
         } catch (err: any) {
             showMsg('error', err?.message || 'Kunde inte ladda organisationen')
@@ -218,6 +222,7 @@ export default function OrgDetailPage() {
                 {[
                     { key: 'overview', label: 'Översikt', icon: BarChart3 },
                     { key: 'members', label: `Användare (${members.length})`, icon: Users },
+                    { key: 'documents', label: `Dokument (${documentCount})`, icon: FileText },
                     { key: 'settings', label: 'Inställningar', icon: Settings },
                 ].map(tab => (
                     <button key={tab.key}
@@ -460,6 +465,22 @@ export default function OrgDetailPage() {
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* DOCUMENTS TAB */}
+            {activeTab === 'documents' && (
+                <div className="bg-card border border-border rounded-[14px] overflow-hidden shadow-sm">
+                    <div className="px-6 py-4 border-b border-border font-semibold text-sm flex items-center gap-2" style={{ background: '#F7F3EC' }}>
+                        <FileText size={16} style={{ color: '#C9A84C' }} /> Viktiga dokument
+                    </div>
+                    <div className="p-6">
+                        <OrganisationDocumentsPanel
+                            organisationId={orgId}
+                            canManage={canWrite}
+                            embedded
+                        />
                     </div>
                 </div>
             )}
