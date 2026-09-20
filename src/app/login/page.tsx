@@ -169,21 +169,13 @@ export default function LoginPage() {
                         {step === "credentials" ? (
                             <>
                                 <div className="text-center mb-8">
-                                    {loginLogoUrl ? (
-                                        <div className="flex justify-center mb-4">
-                                            <img src={loginLogoUrl} alt="Logo"
-                                                style={{ height: `${loginLogoSize}px`, maxWidth: '200px', objectFit: 'contain' }} />
-                                        </div>
-                                    ) : (
-                                        <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-                                            style={{ background: 'linear-gradient(135deg, #C9A84C 0%, #8B6914 100%)' }}>
-                                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                                                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                                                <path d="M2 17l10 5 10-5" />
-                                                <path d="M2 12l10 5 10-5" />
-                                            </svg>
-                                        </div>
-                                    )}
+                                    <div className="flex justify-center mb-4">
+                                        <img
+                                            src={loginLogoUrl || "/logo.svg"}
+                                            alt="Österns Gamla Kyrka"
+                                            style={{ height: `${loginLogoSize}px`, maxWidth: '200px', objectFit: 'contain' }}
+                                        />
+                                    </div>
                                     <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1A1A1A' }}>
                                         {loginTitle}
                                     </h1>

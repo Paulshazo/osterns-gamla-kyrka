@@ -116,22 +116,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 <div className="flex items-start justify-between">
                     <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
                         {/* Logo */}
-                        {adminLogoUrl ? (
-                            <img
-                                src={adminLogoUrl}
-                                alt="Logo"
-                                style={{ height: `${adminLogoSize}px`, maxWidth: '120px', objectFit: 'contain' }}
-                            />
-                        ) : (
-                            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                                style={{ background: 'linear-gradient(135deg, #C9A84C 0%, #8B6914 100%)' }}>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                                    <path d="M2 17l10 5 10-5" />
-                                    <path d="M2 12l10 5 10-5" />
-                                </svg>
-                            </div>
-                        )}
+                        <img
+                            src={adminLogoUrl || "/logo.svg"}
+                            alt="Logo"
+                            style={{ height: `${adminLogoSize}px`, maxWidth: '120px', objectFit: 'contain' }}
+                        />
                         {/* Name under logo */}
                         <span className="font-bold text-sm text-center leading-tight w-full truncate px-1"
                             style={{ color: '#F0EBE0' }}>
