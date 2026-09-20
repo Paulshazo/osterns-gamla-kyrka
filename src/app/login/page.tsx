@@ -29,9 +29,9 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const loginTitle = "S:ta Maria Församling"
-    const [loginLogoUrl, setLoginLogoUrl] = useState<string | null>("/orgs/goteborg-logo-login.png")
-    const [loginLogoSize, setLoginLogoSize] = useState(112)
+    const [loginTitle, setLoginTitle] = useState("")
+    const [loginLogoUrl, setLoginLogoUrl] = useState<string | null>("/orgs/osterns-gamla-kyrka-login.png")
+    const [loginLogoSize, setLoginLogoSize] = useState(140)
     const [organisations, setOrganisations] = useState<OrgOption[]>([])
     const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
@@ -41,14 +41,15 @@ export default function LoginPage() {
             try {
                 const { data } = await supabase
                     .from('app_settings')
-                    .select('login_logo_url, login_logo_size')
+                    .select('login_title, login_logo_url, login_logo_size')
                     .limit(1)
                     .single()
                 if (data) {
+                    if (data.login_title) setLoginTitle(data.login_title)
                     if (data.login_logo_url) setLoginLogoUrl(data.login_logo_url)
-                    else setLoginLogoUrl("/orgs/goteborg-logo-login.png")
+                    else setLoginLogoUrl("/orgs/osterns-gamla-kyrka-login.png")
                     if (data.login_logo_size) setLoginLogoSize(data.login_logo_size)
-                    else setLoginLogoSize(112)
+                    else setLoginLogoSize(140)
                 }
             } catch { /* ignore */ }
         }
@@ -171,16 +172,18 @@ export default function LoginPage() {
                         {step === "credentials" ? (
                             <>
                                 <div className="text-center mb-8">
-                                    <div className="flex justify-center mb-4">
+                                    <div className="flex justify-center mb-2">
                                         <img
-                                            src={loginLogoUrl || "/orgs/goteborg-logo-login.png"}
-                                            alt="S:ta Maria Församling"
-                                            style={{ height: `${loginLogoSize}px`, maxWidth: '220px', width: 'auto', objectFit: 'contain' }}
+                                            src={loginLogoUrl || "/orgs/osterns-gamla-kyrka-login.png"}
+                                            alt="Osterns Gamla Kyrka"
+                                            style={{ height: `${loginLogoSize}px`, maxWidth: '280px', width: 'auto', objectFit: 'contain' }}
                                         />
                                     </div>
-                                    <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1A1A1A' }}>
-                                        {loginTitle}
-                                    </h1>
+                                    {loginTitle ? (
+                                        <h1 className="text-2xl font-bold tracking-tight text-center" style={{ color: '#1A1A1A' }}>
+                                            {loginTitle}
+                                        </h1>
+                                    ) : null}
                                 </div>
 
                                 <form onSubmit={handleLogin} className="space-y-5">

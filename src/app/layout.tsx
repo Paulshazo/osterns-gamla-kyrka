@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' });
 
 export const metadata: Metadata = {
-  title: "S:ta Maria Församling",
-  description: "Digitalt medlemsregistersystem — Göteborg",
+  title: "Österns Gamla Kyrka",
+  description: "Digitalt medlemsregistersystem",
 };
 
 // Prevents iOS Safari from zooming in when tapping inputs/selects
