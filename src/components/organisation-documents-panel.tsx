@@ -8,12 +8,15 @@ import {
     registerOrganisationDocument,
     deleteOrganisationDocument,
     getDocumentDownloadUrl,
+    getDocumentViewUrl,
 } from "@/app/actions/documents"
 import {
     ORG_DOCUMENTS_BUCKET,
     ORG_DOCUMENTS_MAX_BYTES,
     buildOrganisationDocumentPath,
     formatDocumentSize,
+    getDocumentPreviewKind,
+    type DocumentPreviewKind,
 } from "@/lib/org-documents"
 import { format } from "date-fns"
 import { sv, enUS } from "date-fns/locale"
@@ -24,6 +27,8 @@ import {
     Trash2,
     Loader2,
     AlertCircle,
+    Eye,
+    X,
 } from "lucide-react"
 
 export type OrganisationDocumentRow = {
@@ -44,6 +49,125 @@ type Props = {
     embedded?: boolean
 }
 
+type ViewerState = {
+    doc: OrganisationDocumentRow
+    url: string
+    mimeType: string | null
+    kind: DocumentPreviewKind
+    textContent: string | null
+}
+
+function DocumentViewerModal({
+    viewer,
+    loading,
+    canManage,
+    onClose,
+    onDownload,
+    t,
+}: {
+    viewer: ViewerState | null
+    loading: boolean
+    canManage: boolean
+    onClose: () => void
+    onDownload: () => void
+    t: (key: string) => string
+}) {
+    useEffect(() => {
+        if (!viewer) return
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose()
+        }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [viewer, onClose])
+
+    if (!viewer && !loading) return null
+
+    return (
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8"
+            style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="document-viewer-title"
+        >
+            <div
+                className="relative flex flex-col w-full max-w-5xl max-h-[90vh] rounded-[14px] overflow-hidden shadow-2xl bg-card border border-border"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0" style={{ background: '#F7F3EC' }}>
+                    <FileText size={18} style={{ color: '#C9A84C', flexShrink: 0 }} />
+                    <h3 id="document-viewer-title" className="text-sm font-semibold truncate flex-1" style={{ color: '#1A1A1A' }}>
+                        {viewer?.doc.file_name ?? t('page.documents.view')}
+                    </h3>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                        {canManage && viewer && (
+                            <button
+                                type="button"
+                                onClick={onDownload}
+                                className="p-2 rounded-[8px] hover:bg-black/5 transition-colors"
+                                title={t('page.documents.download')}
+                            >
+                                <Download size={16} style={{ color: '#2980B9' }} />
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="p-2 rounded-[8px] hover:bg-black/5 transition-colors"
+                            aria-label={t('common.close')}
+                        >
+                            <X size={18} style={{ color: '#6B6355' }} />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-auto bg-[#FAFAF8] flex items-center justify-center">
+                    {loading ? (
+                        <div className="py-20 flex flex-col items-center gap-3">
+                            <Loader2 className="animate-spin" size={28} style={{ color: '#C9A84C' }} />
+                            <p className="text-sm" style={{ color: '#8A8178' }}>{t('page.documents.view_loading')}</p>
+                        </div>
+                    ) : viewer?.kind === 'pdf' ? (
+                        <iframe
+                            title={viewer.doc.file_name}
+                            src={viewer.url}
+                            className="w-full h-[min(75vh,800px)] border-0 bg-white"
+                        />
+                    ) : viewer?.kind === 'image' ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={viewer.url}
+                            alt={viewer.doc.file_name}
+                            className="max-w-full max-h-[75vh] object-contain p-4"
+                        />
+                    ) : viewer?.kind === 'text' ? (
+                        <pre className="w-full max-h-[75vh] overflow-auto p-6 text-sm whitespace-pre-wrap font-mono text-left" style={{ color: '#1A1A1A' }}>
+                            {viewer.textContent ?? ''}
+                        </pre>
+                    ) : viewer ? (
+                        <div className="text-center px-6 py-16 max-w-md">
+                            <AlertCircle size={40} className="mx-auto mb-4" style={{ color: '#C9A84C' }} />
+                            <p className="text-sm font-medium" style={{ color: '#1A1A1A' }}>{t('page.documents.preview_unavailable')}</p>
+                            {canManage && (
+                                <button
+                                    type="button"
+                                    onClick={onDownload}
+                                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold"
+                                    style={{ background: '#1A1A1A', color: '#FEFCF8' }}
+                                >
+                                    <Download size={14} /> {t('page.documents.download')}
+                                </button>
+                            )}
+                        </div>
+                    ) : null}
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function OrganisationDocumentsPanel({ organisationId, canManage, embedded }: Props) {
     const { t, language } = useLanguage()
     const locale = language === 'sv' ? sv : enUS
@@ -57,6 +181,8 @@ export function OrganisationDocumentsPanel({ organisationId, canManage, embedded
     const [uploading, setUploading] = useState(false)
     const [busyId, setBusyId] = useState<string | null>(null)
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+    const [viewer, setViewer] = useState<ViewerState | null>(null)
+    const [viewerLoading, setViewerLoading] = useState(false)
 
     const showMsg = (type: 'success' | 'error', text: string) => {
         setMessage({ type, text })
@@ -127,6 +253,7 @@ export function OrganisationDocumentsPanel({ organisationId, canManage, embedded
     }
 
     const handleDownload = async (doc: OrganisationDocumentRow) => {
+        if (!canManage) return
         setBusyId(doc.id)
         try {
             const res = await getDocumentDownloadUrl(doc.id, organisationId)
@@ -137,6 +264,36 @@ export function OrganisationDocumentsPanel({ organisationId, canManage, embedded
             showMsg('error', msg)
         } finally {
             setBusyId(null)
+        }
+    }
+
+    const handleView = async (doc: OrganisationDocumentRow) => {
+        setViewerLoading(true)
+        setViewer(null)
+        try {
+            const res = await getDocumentViewUrl(doc.id, organisationId)
+            if (!res.success || !res.url) throw new Error(res.error)
+
+            const kind = getDocumentPreviewKind(res.mimeType ?? doc.mime_type, doc.file_name)
+            let textContent: string | null = null
+            if (kind === 'text') {
+                const textRes = await fetch(res.url)
+                if (!textRes.ok) throw new Error(t('page.documents.error_view'))
+                textContent = await textRes.text()
+            }
+
+            setViewer({
+                doc,
+                url: res.url,
+                mimeType: res.mimeType ?? doc.mime_type,
+                kind,
+                textContent,
+            })
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : t('page.documents.error_view')
+            showMsg('error', msg)
+        } finally {
+            setViewerLoading(false)
         }
     }
 
@@ -161,6 +318,15 @@ export function OrganisationDocumentsPanel({ organisationId, canManage, embedded
 
     const inner = (
         <div className="space-y-4">
+            <DocumentViewerModal
+                viewer={viewer}
+                loading={viewerLoading}
+                canManage={canManage}
+                onClose={() => { setViewer(null); setViewerLoading(false) }}
+                onDownload={() => viewer && void handleDownload(viewer.doc)}
+                t={t}
+            />
+
             {message && (
                 <div className={`p-3 rounded-[10px] text-sm border font-medium ${
                     message.type === 'success'
@@ -229,10 +395,16 @@ export function OrganisationDocumentsPanel({ organisationId, canManage, embedded
                             {documents.map((doc) => (
                                 <tr key={doc.id}>
                                     <td className="px-4 py-3 font-medium" style={{ color: '#1A1A1A' }}>
-                                        <span className="inline-flex items-center gap-2 min-w-0">
+                                        <button
+                                            type="button"
+                                            disabled={busyId === doc.id}
+                                            onClick={() => void handleView(doc)}
+                                            className="inline-flex items-center gap-2 min-w-0 text-left hover:underline disabled:opacity-50"
+                                            title={t('page.documents.view')}
+                                        >
                                             <FileText size={15} style={{ color: '#C9A84C', flexShrink: 0 }} />
                                             <span className="truncate">{doc.file_name}</span>
-                                        </span>
+                                        </button>
                                     </td>
                                     <td className="px-4 py-3 hidden sm:table-cell" style={{ color: '#6B6355' }}>
                                         {formatDocumentSize(doc.size_bytes, language)}
@@ -244,31 +416,38 @@ export function OrganisationDocumentsPanel({ organisationId, canManage, embedded
                                         <div className="flex items-center justify-end gap-1">
                                             <button
                                                 type="button"
-                                                disabled={busyId === doc.id}
-                                                onClick={() => void handleDownload(doc)}
+                                                disabled={busyId === doc.id || viewerLoading}
+                                                onClick={() => void handleView(doc)}
                                                 className="p-2 rounded-[8px] hover:bg-black/5 transition-colors disabled:opacity-50"
-                                                title={t('page.documents.download')}
+                                                title={t('page.documents.view')}
                                             >
-                                                {busyId === doc.id && !canManage ? (
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                ) : (
-                                                    <Download size={16} style={{ color: '#2980B9' }} />
-                                                )}
+                                                <Eye size={16} style={{ color: '#C9A84C' }} />
                                             </button>
                                             {canManage && (
-                                                <button
-                                                    type="button"
-                                                    disabled={busyId === doc.id}
-                                                    onClick={() => void handleDelete(doc)}
-                                                    className="p-2 rounded-[8px] hover:bg-red-50 transition-colors disabled:opacity-50"
-                                                    title={t('common.delete')}
-                                                >
-                                                    {busyId === doc.id ? (
-                                                        <Loader2 size={16} className="animate-spin text-red-400" />
-                                                    ) : (
-                                                        <Trash2 size={16} className="text-red-400" />
-                                                    )}
-                                                </button>
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        disabled={busyId === doc.id}
+                                                        onClick={() => void handleDownload(doc)}
+                                                        className="p-2 rounded-[8px] hover:bg-black/5 transition-colors disabled:opacity-50"
+                                                        title={t('page.documents.download')}
+                                                    >
+                                                        <Download size={16} style={{ color: '#2980B9' }} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={busyId === doc.id}
+                                                        onClick={() => void handleDelete(doc)}
+                                                        className="p-2 rounded-[8px] hover:bg-red-50 transition-colors disabled:opacity-50"
+                                                        title={t('common.delete')}
+                                                    >
+                                                        {busyId === doc.id ? (
+                                                            <Loader2 size={16} className="animate-spin text-red-400" />
+                                                        ) : (
+                                                            <Trash2 size={16} className="text-red-400" />
+                                                        )}
+                                                    </button>
+                                                </>
                                             )}
                                         </div>
                                     </td>

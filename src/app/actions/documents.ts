@@ -184,33 +184,59 @@ export async function deleteOrganisationDocument(documentId: string, orgId?: str
     }
 }
 
+async function getSignedDocumentAccess(
+    documentId: string,
+    orgId: string | undefined,
+    expiresInSeconds: number,
+    access: 'view' | 'download',
+) {
+    const resolvedOrgId = orgId ?? await getActiveOrgId()
+    if (!resolvedOrgId) throw new Error('Ingen organisation vald')
+
+    if (access === 'download') {
+        await assertOrgAdmin(resolvedOrgId)
+    } else {
+        await assertOrgMember(resolvedOrgId)
+    }
+
+    const supabase = await getAuthClient()
+    const { data: doc, error: fetchError } = await supabase
+        .from('organisation_documents')
+        .select('id, storage_path, file_name, organisation_id, mime_type')
+        .eq('id', documentId)
+        .eq('organisation_id', resolvedOrgId)
+        .single()
+
+    if (fetchError || !doc) throw new Error('Dokumentet hittades inte')
+
+    const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(doc.storage_path, expiresInSeconds)
+
+    if (error || !data?.signedUrl) throw error ?? new Error('Kunde inte öppna dokumentet')
+
+    return {
+        url: data.signedUrl,
+        fileName: doc.file_name,
+        mimeType: doc.mime_type as string | null,
+    }
+}
+
+/** Signed URL for in-app preview (all org members). */
+export async function getDocumentViewUrl(documentId: string, orgId?: string) {
+    try {
+        const data = await getSignedDocumentAccess(documentId, orgId, 600, 'view')
+        return { success: true as const, ...data }
+    } catch (error: any) {
+        return { success: false as const, error: error.message }
+    }
+}
+
+/** Signed URL for file download (org admins / superadmin only). */
 export async function getDocumentDownloadUrl(documentId: string, orgId?: string) {
     try {
-        const resolvedOrgId = orgId ?? await getActiveOrgId()
-        if (!resolvedOrgId) throw new Error('Ingen organisation vald')
-
-        const { supabase } = await assertOrgMember(resolvedOrgId)
-
-        const { data: doc, error: fetchError } = await supabase
-            .from('organisation_documents')
-            .select('id, storage_path, file_name, organisation_id')
-            .eq('id', documentId)
-            .eq('organisation_id', resolvedOrgId)
-            .single()
-
-        if (fetchError || !doc) throw new Error('Dokumentet hittades inte')
-
-        const { data, error } = await supabase.storage
-            .from(BUCKET)
-            .createSignedUrl(doc.storage_path, 120)
-
-        if (error || !data?.signedUrl) throw error ?? new Error('Kunde inte skapa nedladdningslänk')
-
-        return {
-            success: true as const,
-            url: data.signedUrl,
-            fileName: doc.file_name,
-        }
+        const data = await getSignedDocumentAccess(documentId, orgId, 120, 'download')
+        return { success: true as const, ...data }
     } catch (error: any) {
         return { success: false as const, error: error.message }
     }

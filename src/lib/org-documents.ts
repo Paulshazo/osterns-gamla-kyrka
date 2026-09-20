@@ -10,6 +10,18 @@ export function buildOrganisationDocumentPath(orgId: string, documentId: string,
     return `${orgId}/${documentId}/${sanitizeOrganisationFileName(fileName)}`
 }
 
+export type DocumentPreviewKind = 'pdf' | 'image' | 'text' | 'none'
+
+export function getDocumentPreviewKind(mimeType: string | null | undefined, fileName: string): DocumentPreviewKind {
+    const mime = (mimeType ?? '').toLowerCase()
+    const ext = fileName.includes('.') ? fileName.split('.').pop()!.toLowerCase() : ''
+
+    if (mime === 'application/pdf' || ext === 'pdf') return 'pdf'
+    if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return 'image'
+    if (mime.startsWith('text/') || ext === 'txt' || ext === 'csv') return 'text'
+    return 'none'
+}
+
 export function formatDocumentSize(bytes: number | null | undefined, language: 'sv' | 'en') {
     if (bytes == null || bytes <= 0) return '—'
     const units = language === 'sv'
