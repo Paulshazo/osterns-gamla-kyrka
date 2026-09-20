@@ -32,11 +32,11 @@ export default function SettingsPage() {
     const [settings, setSettings] = useState({
         admin_title:       "",
         admin_logo_url:    "",
-        admin_logo_size:   32,
-        login_title:       "",
+        admin_logo_size:   40,
+        login_title:       "S:ta Maria Församling",
         login_subtitle:    "",
         login_logo_url:    "",
-        login_logo_size:   64,
+        login_logo_size:   112,
         resend_api_key:    "",
         resend_from_email: "",
         resend_from_name:  "Kyrkoregistret",
@@ -272,7 +272,7 @@ export default function SettingsPage() {
                                     {language === 'sv' ? 'Logotypstorlek' : 'Logo size'} — {settings.admin_logo_size}px
                                 </label>
                                 <input
-                                    type="range" min="16" max="100"
+                                    type="range" min="24" max="72"
                                     value={settings.admin_logo_size}
                                     onChange={(e) => set('admin_logo_size', Number(e.target.value))}
                                     className="w-full accent-gold"
@@ -307,7 +307,7 @@ export default function SettingsPage() {
                                 <img
                                     src={settings.admin_logo_url}
                                     alt="Admin logo preview"
-                                    style={{ height: settings.admin_logo_size, maxWidth: '120px', objectFit: 'contain' }}
+                                    style={{ height: settings.admin_logo_size, maxWidth: '200px', width: 'auto', objectFit: 'contain' }}
                                     onError={(e) => (e.currentTarget.style.display = 'none')}
                                 />
                             ) : (
@@ -385,7 +385,7 @@ export default function SettingsPage() {
                                 <img
                                     src={settings.login_logo_url}
                                     alt="Login logo preview"
-                                    style={{ height: Math.min(settings.login_logo_size, 80), maxWidth: '160px', objectFit: 'contain' }}
+                                    style={{ height: Math.min(settings.login_logo_size, 120), maxWidth: '220px', width: 'auto', objectFit: 'contain' }}
                                     onError={(e) => (e.currentTarget.style.display = 'none')}
                                 />
                             ) : (

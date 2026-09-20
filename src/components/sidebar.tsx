@@ -55,7 +55,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     } = useActiveOrg()
     const [adminTitle, setAdminTitle]   = useState("Kyrkoregistret")
     const [adminLogoUrl, setAdminLogoUrl] = useState<string | null>(null)
-    const [adminLogoSize, setAdminLogoSize] = useState(32)
+    const [adminLogoSize, setAdminLogoSize] = useState(40)
     const [userEmail, setUserEmail] = useState("")
 
     useEffect(() => {
@@ -115,11 +115,15 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
             <div className="px-5 py-5 border-b" style={{ borderColor: '#2E2E2E' }}>
                 <div className="flex items-start justify-between">
                     <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
-                        {/* Logo */}
+                        {/* Logo — Göteborg uses S:ta Maria Församling mark */}
                         <img
-                            src={adminLogoUrl || "/logo.svg"}
+                            src={adminLogoUrl || (
+                                activeOrgName?.toLowerCase().includes('göteborg') || activeOrgName?.toLowerCase().includes('goteborg')
+                                    ? '/orgs/goteborg-logo.png'
+                                    : '/logo.svg'
+                            )}
                             alt="Logo"
-                            style={{ height: `${adminLogoSize}px`, maxWidth: '120px', objectFit: 'contain' }}
+                            style={{ height: `${adminLogoSize}px`, maxWidth: '200px', width: 'auto', objectFit: 'contain' }}
                         />
                         {/* Name under logo */}
                         <span className="font-bold text-sm text-center leading-tight w-full truncate px-1"

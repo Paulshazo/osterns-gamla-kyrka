@@ -29,9 +29,9 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const loginTitle = "Österns Gamla Kyrkans Register"
-    const [loginLogoUrl, setLoginLogoUrl] = useState<string | null>(null)
-    const [loginLogoSize, setLoginLogoSize] = useState(64)
+    const loginTitle = "S:ta Maria Församling"
+    const [loginLogoUrl, setLoginLogoUrl] = useState<string | null>("/orgs/goteborg-logo-login.png")
+    const [loginLogoSize, setLoginLogoSize] = useState(112)
     const [organisations, setOrganisations] = useState<OrgOption[]>([])
     const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
@@ -46,7 +46,9 @@ export default function LoginPage() {
                     .single()
                 if (data) {
                     if (data.login_logo_url) setLoginLogoUrl(data.login_logo_url)
+                    else setLoginLogoUrl("/orgs/goteborg-logo-login.png")
                     if (data.login_logo_size) setLoginLogoSize(data.login_logo_size)
+                    else setLoginLogoSize(112)
                 }
             } catch { /* ignore */ }
         }
@@ -171,9 +173,9 @@ export default function LoginPage() {
                                 <div className="text-center mb-8">
                                     <div className="flex justify-center mb-4">
                                         <img
-                                            src={loginLogoUrl || "/logo.svg"}
-                                            alt="Österns Gamla Kyrka"
-                                            style={{ height: `${loginLogoSize}px`, maxWidth: '200px', objectFit: 'contain' }}
+                                            src={loginLogoUrl || "/orgs/goteborg-logo-login.png"}
+                                            alt="S:ta Maria Församling"
+                                            style={{ height: `${loginLogoSize}px`, maxWidth: '220px', width: 'auto', objectFit: 'contain' }}
                                         />
                                     </div>
                                     <h1 className="text-2xl font-bold tracking-tight" style={{ color: '#1A1A1A' }}>

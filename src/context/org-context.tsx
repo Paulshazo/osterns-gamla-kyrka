@@ -138,7 +138,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
                     .single()
                 if (data) {
                     setActiveOrgName(data.name)
-                    setActiveOrgLogo(data.logo_url)
+                    const isGoteborg = data.name?.toLowerCase().includes('göteborg') || data.name?.toLowerCase().includes('goteborg')
+                    setActiveOrgLogo(data.logo_url || (isGoteborg ? '/orgs/goteborg-mark.png' : null))
                     setActiveOrgColor(data.primary_color || '#C9A84C')
                 }
             } else {
