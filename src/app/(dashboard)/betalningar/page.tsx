@@ -15,7 +15,7 @@ import { exportToExcel, exportToPDF } from "@/lib/export"
 import { sendPaymentReminderAction } from "@/app/actions/email"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ReadOnlyBanner } from "@/components/read-only-banner"
-import { familyMonthlyFee } from "@/lib/payment-period"
+import { familyMonthlyFee, latestPayment } from "@/lib/payment-period"
 
 export default function BetalningarPage() {
     const supabase = useMemo(() => {
@@ -50,13 +50,17 @@ export default function BetalningarPage() {
             .order('familje_namn', { ascending: true })
 
         const processed = (data ?? []).map((f: any) => {
-            const payments = (f.betalningar ?? []).slice().sort((a: any, b: any) => {
-                const untilDiff = String(b.betalat_till_datum ?? '').localeCompare(String(a.betalat_till_datum ?? ''))
-                if (untilDiff !== 0) return untilDiff
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            })
-            const latest = payments[0]
+            const latest = latestPayment(f.betalningar as Array<{
+                id?: string
+                betalat_till_datum?: string | null
+                created_at?: string
+                total_manads_avgift?: number
+                summan?: number
+                betalat_via?: string | null
+                betalnings_referens?: string | null
+            }> ?? [])
             const calcMonthly = familyMonthlyFee(f)
+            const monthly = calcMonthly || Number(latest?.total_manads_avgift) || 0
             return {
                 id: f.id,
                 betalning_id: latest?.id ?? null,
@@ -64,8 +68,8 @@ export default function BetalningarPage() {
                 make_namn: f.make_namn,
                 hustru_namn: f.hustru_namn,
                 mail: f.mail ?? null,
-                monthly_fee: calcMonthly || latest?.total_manads_avgift || 0,
-                annual_fee: (calcMonthly || latest?.total_manads_avgift || 0) * 12,
+                monthly_fee: monthly,
+                annual_fee: monthly * 12,
                 paid_sum: latest?.summan ?? 0,
                 paid_until: latest?.betalat_till_datum ?? null,
                 method: latest?.betalat_via ?? null,

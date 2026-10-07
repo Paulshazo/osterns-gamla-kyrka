@@ -1,16 +1,29 @@
-/** Swedish personal identity number helpers. 12 digits YYYYMMDDNNNN, or 10 digits YYMMDDNNNN. */
+/** Swedish personal identity number helpers. 12 digits YYYYMMDDNNNN, or 10 digits YYMMDDNNNN.
+ *  Last four may be xxxx when the person has no identity number. */
+
+export function sanitizePersonnummerInput(raw: string): string {
+    return raw.replace(/[^0-9xX]/g, '').replace(/X/g, 'x').slice(0, 12)
+}
+
+/** Accepts 12 digits, or birth date + xxxx (YYYYMMDDxxxx). Empty is valid (optional field). */
+export function isValidPersonnummer(pn: string | null | undefined): boolean {
+    const value = (pn ?? '').trim()
+    if (!value) return true
+    return /^\d{12}$/.test(value) || /^\d{8}xxxx$/i.test(value)
+}
 
 function digitsOnly(value: string | null | undefined): string {
     return (value ?? '').replace(/\D/g, '')
 }
 
 export function birthDateFromPersonnummer(pn: string | null | undefined): Date | null {
-    const d = digitsOnly(pn)
+    const raw = (pn ?? '').trim()
+    const d = /^\d{8}xxxx$/i.test(raw) ? raw.slice(0, 8) : digitsOnly(raw)
     let year: number
     let month: number
     let day: number
 
-    if (d.length === 12) {
+    if (d.length >= 8 && (d.length === 8 || d.length === 12 || /^\d{8}xxxx$/i.test(raw))) {
         year = Number(d.slice(0, 4))
         month = Number(d.slice(4, 6))
         day = Number(d.slice(6, 8))

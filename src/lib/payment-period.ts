@@ -64,6 +64,35 @@ export function coverageStartDate(previousUntil: Date | null, today = todayLocal
     return today
 }
 
+export type PaymentStartMode = 'today' | 'previous' | 'custom'
+
+export function resolvePaymentStartDate(input: {
+    mode: PaymentStartMode
+    previousUntil: string | null
+    customDate: string
+    today?: Date
+}): Date {
+    const today = startOfDay(input.today ?? todayLocal())
+    if (input.mode === 'previous') {
+        return parseDateOnly(input.previousUntil) ?? today
+    }
+    if (input.mode === 'custom') {
+        return parseDateOnly(input.customDate) ?? today
+    }
+    return today
+}
+
+export function latestPayment<T extends { betalat_till_datum?: string | null; created_at?: string }>(
+    payments: T[] | null | undefined,
+): T | undefined {
+    if (!payments?.length) return undefined
+    return [...payments].sort((a, b) => {
+        const untilDiff = String(b.betalat_till_datum ?? '').localeCompare(String(a.betalat_till_datum ?? ''))
+        if (untilDiff !== 0) return untilDiff
+        return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+    })[0]
+}
+
 export function addAmountCoverage(start: Date, amount: number, monthlyFee: number): Date {
     if (monthlyFee <= 0 || amount <= 0) return start
     const monthsExact = amount / monthlyFee
@@ -92,6 +121,7 @@ export function calculatePaymentPeriod(input: {
     amount: number
     monthlyFee: number
     previousUntil: string | null
+    startDate?: string | null
     adults?: number
     children?: number
     today?: Date
@@ -101,7 +131,7 @@ export function calculatePaymentPeriod(input: {
     const today = startOfDay(input.today ?? todayLocal())
     const previousUntil = parseDateOnly(input.previousUntil)
     const previousExpired = Boolean(previousUntil && isAfter(today, previousUntil))
-    const start = coverageStartDate(previousUntil, today)
+    const start = parseDateOnly(input.startDate) ?? coverageStartDate(previousUntil, today)
     const monthsExact = monthlyFee > 0 ? amount / monthlyFee : 0
     const wholeMonths = Math.floor(monthsExact + 1e-9)
     const fraction = monthsExact - wholeMonths
@@ -157,21 +187,25 @@ export function describePaymentPeriod(period: PaymentPeriod, language: "sv" | "e
     let previous: string
     if (!period.previousUntil) {
         previous = language === "sv"
-            ? "Ingen tidigare betalning — perioden räknas från idag."
-            : "No previous payment — period starts today."
+            ? "Ingen tidigare betalning."
+            : "No previous payment."
     } else if (period.previousExpired) {
         previous = language === "sv"
-            ? `Tidigare giltig till ${fmt(period.previousUntil)} (förfallen). Ny period räknas från idag.`
-            : `Previously valid until ${fmt(period.previousUntil)} (expired). New period starts today.`
+            ? `Tidigare giltig till ${fmt(period.previousUntil)} (förfallen).`
+            : `Previously valid until ${fmt(period.previousUntil)} (expired).`
     } else {
         previous = language === "sv"
-            ? `Tidigare giltig till ${fmt(period.previousUntil)}. Ny betalning läggs på den perioden.`
-            : `Previously valid until ${fmt(period.previousUntil)}. The new payment extends that period.`
+            ? `Tidigare giltig till ${fmt(period.previousUntil)}.`
+            : `Previously valid until ${fmt(period.previousUntil)}.`
     }
+
+    const from = language === "sv"
+        ? `Perioden räknas från ${fmt(period.start)}.`
+        : `Period starts ${fmt(period.start)}.`
 
     const result = language === "sv"
         ? `Beloppet räcker i ${coverage} → ny giltighet ${fmt(period.validUntil)}.`
         : `This amount covers ${coverage} → new validity ${fmt(period.validUntil)}.`
 
-    return `${fees} ${previous} ${result}`
+    return `${fees} ${previous} ${from} ${result}`
 }
