@@ -82,6 +82,16 @@ export function resolvePaymentStartDate(input: {
     return today
 }
 
+export function effectivePaidUntil(input: {
+    latestPaidUntil?: string | null
+    manuellObetald?: boolean | null
+    manuellBetalatTill?: string | null
+}): string | null {
+    if (input.manuellObetald) return null
+    if (input.manuellBetalatTill) return input.manuellBetalatTill
+    return input.latestPaidUntil ?? null
+}
+
 export function latestPayment<T extends { betalat_till_datum?: string | null; created_at?: string }>(
     payments: T[] | null | undefined,
 ): T | undefined {

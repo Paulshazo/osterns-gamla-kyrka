@@ -15,7 +15,8 @@ import { exportToExcel, exportToPDF } from "@/lib/export"
 import { sendPaymentReminderAction } from "@/app/actions/email"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ReadOnlyBanner } from "@/components/read-only-banner"
-import { familyMonthlyFee, latestPayment } from "@/lib/payment-period"
+import { PaymentStatusForm } from "@/components/payment-status-form"
+import { effectivePaidUntil, familyMonthlyFee, latestPayment } from "@/lib/payment-period"
 
 export default function BetalningarPage() {
     const supabase = useMemo(() => {
@@ -31,6 +32,7 @@ export default function BetalningarPage() {
     const [searchQuery, setSearchQuery] = useState("")
     const [showForm, setShowForm] = useState(false)
     const [selectedPayment, setSelectedPayment] = useState<any>(null)
+    const [statusTarget, setStatusTarget] = useState<any>(null)
     const [exporting, setExporting] = useState(false)
     const [sendingReminder, setSendingReminder] = useState<string | null>(null)
     const [reminderFeedback, setReminderFeedback] = useState<{ id: string; ok: boolean; msg: string } | null>(null)
@@ -38,16 +40,32 @@ export default function BetalningarPage() {
     const fetchPayments = async () => {
         if (!supabase || !activeOrgId) return
         setLoading(true)
-        const { data } = await supabase
-            .from('familjer')
-            .select(`
+        const selectWithManual = `
+                id, familje_namn, make_namn, hustru_namn, mail,
+                make_manads_avgift, hustru_manads_avgift,
+                manuell_obetald, manuell_betalat_till,
+                betalningar(id, total_manads_avgift, total_ars_avgift, summan, betalat_till_datum, betalat_via, betalnings_referens, created_at),
+                barn(manads_avgift, namn)
+            `
+        const selectBase = `
                 id, familje_namn, make_namn, hustru_namn, mail,
                 make_manads_avgift, hustru_manads_avgift,
                 betalningar(id, total_manads_avgift, total_ars_avgift, summan, betalat_till_datum, betalat_via, betalnings_referens, created_at),
                 barn(manads_avgift, namn)
-            `)
+            `
+        let { data, error } = await supabase
+            .from('familjer')
+            .select(selectWithManual)
             .eq('organisation_id', activeOrgId)
             .order('familje_namn', { ascending: true })
+        if (error && /manuell_obetald|manuell_betalat_till|schema cache|column/i.test(error.message)) {
+            const retry = await supabase
+                .from('familjer')
+                .select(selectBase)
+                .eq('organisation_id', activeOrgId)
+                .order('familje_namn', { ascending: true })
+            data = retry.data as typeof data
+        }
 
         const processed = (data ?? []).map((f: any) => {
             const latest = latestPayment(f.betalningar as Array<{
@@ -61,17 +79,24 @@ export default function BetalningarPage() {
             }> ?? [])
             const calcMonthly = familyMonthlyFee(f)
             const monthly = calcMonthly || Number(latest?.total_manads_avgift) || 0
+            const paidUntil = effectivePaidUntil({
+                latestPaidUntil: latest?.betalat_till_datum ?? null,
+                manuellObetald: f.manuell_obetald,
+                manuellBetalatTill: f.manuell_betalat_till,
+            })
             return {
                 id: f.id,
                 betalning_id: latest?.id ?? null,
                 familje_namn: f.familje_namn,
                 make_namn: f.make_namn,
                 hustru_namn: f.hustru_namn,
+                child_names: (f.barn ?? []).map((b: any) => b.namn).filter(Boolean),
                 mail: f.mail ?? null,
                 monthly_fee: monthly,
                 annual_fee: monthly * 12,
                 paid_sum: latest?.summan ?? 0,
-                paid_until: latest?.betalat_till_datum ?? null,
+                paid_until: paidUntil,
+                manuell_obetald: Boolean(f.manuell_obetald),
                 method: latest?.betalat_via ?? null,
                 ref: latest?.betalnings_referens ?? null,
             }
@@ -104,7 +129,9 @@ export default function BetalningarPage() {
     const filteredPayments = payments
         .filter(p =>
             p.familje_namn?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (p.make_namn?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
+            (p.make_namn?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+            (p.hustru_namn?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+            (p.child_names ?? []).some((name: string) => name.toLowerCase().includes(searchQuery.toLowerCase()))
         )
         .sort((a, b) => statusPriority(a) - statusPriority(b))
 
@@ -296,7 +323,9 @@ export default function BetalningarPage() {
                                         <tr key={p.id}>
                                             <td>
                                                 <div className="font-semibold">{p.familje_namn}</div>
-                                                <div className="text-xs text-muted-foreground">{p.make_namn}</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    {p.make_namn || p.hustru_namn || (p.child_names?.length ? p.child_names.join(', ') : '')}
+                                                </div>
                                             </td>
                                             <td>{p.monthly_fee.toLocaleString('sv-SE')} kr</td>
                                             <td>{p.annual_fee.toLocaleString('sv-SE')} kr</td>
@@ -341,19 +370,27 @@ export default function BetalningarPage() {
                                                             </button>
                                                         )}
                                                         {canEditPayments && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setSelectedPayment({
-                                                                        familj_id: p.id,
-                                                                    })
-                                                                    setShowForm(true)
-                                                                }}
-                                                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary-foreground"
-                                                                style={{ background: '#1A1A1A' }}
-                                                            >
-                                                                <CreditCard size={12} />
-                                                                {t('action.manage')}
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    onClick={() => setStatusTarget(p)}
+                                                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-border hover:bg-secondary transition-colors"
+                                                                >
+                                                                    {t('action.edit_status')}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSelectedPayment({
+                                                                            familj_id: p.id,
+                                                                        })
+                                                                        setShowForm(true)
+                                                                    }}
+                                                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary-foreground"
+                                                                    style={{ background: '#1A1A1A' }}
+                                                                >
+                                                                    <CreditCard size={12} />
+                                                                    {t('action.manage')}
+                                                                </button>
+                                                            </>
                                                         )}
                                                     </div>
                                                 </div>
@@ -379,6 +416,17 @@ export default function BetalningarPage() {
                     initialData={selectedPayment}
                     onClose={() => { setShowForm(false); setSelectedPayment(null) }}
                     onSuccess={() => { setShowForm(false); setSelectedPayment(null); fetchPayments() }}
+                />
+            )}
+
+            {statusTarget && (
+                <PaymentStatusForm
+                    familyId={statusTarget.id}
+                    familyName={statusTarget.familje_namn}
+                    currentPaidUntil={statusTarget.paid_until}
+                    currentlyUnpaid={!statusTarget.paid_until}
+                    onClose={() => setStatusTarget(null)}
+                    onSuccess={() => { setStatusTarget(null); fetchPayments() }}
                 />
             )}
         </div>

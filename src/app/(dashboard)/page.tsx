@@ -10,7 +10,7 @@ import { addDays, isBefore, parseISO } from "date-fns"
 import { useLanguage } from "@/components/language-provider"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ageFromPersonnummer, ageGroupFromAge, sexFromPersonnummer } from "@/lib/personnummer"
-import { latestPayment } from "@/lib/payment-period"
+import { effectivePaidUntil, latestPayment } from "@/lib/payment-period"
 
 type PlaceCount = { name: string; count: number }
 
@@ -71,15 +71,23 @@ export default function Dashboard() {
             const [
                 { data: income },
                 { data: expenses },
-                { data: families },
+                familiesRes,
             ] = await Promise.all([
                 supabase.from('intakter').select('total').eq('organisation_id', activeOrgId),
                 supabase.from('utgifter').select('total').eq('organisation_id', activeOrgId),
                 supabase
                     .from('familjer')
-                    .select('make_namn, hustru_namn, make_personnummer, hustru_personnummer, ort, barn(personnummer), betalningar(betalat_till_datum, created_at)')
+                    .select('make_namn, hustru_namn, make_personnummer, hustru_personnummer, ort, manuell_obetald, manuell_betalat_till, barn(personnummer), betalningar(betalat_till_datum, created_at)')
                     .eq('organisation_id', activeOrgId),
             ])
+            let families = familiesRes.data
+            if (familiesRes.error && /manuell_obetald|manuell_betalat_till|schema cache|column/i.test(familiesRes.error.message)) {
+                const retry = await supabase
+                    .from('familjer')
+                    .select('make_namn, hustru_namn, make_personnummer, hustru_personnummer, ort, barn(personnummer), betalningar(betalat_till_datum, created_at)')
+                    .eq('organisation_id', activeOrgId)
+                families = retry.data as typeof families
+            }
 
             const totalInc = income?.reduce((s, i) => s + (i.total ?? 0), 0) ?? 0
             const totalExp = expenses?.reduce((s, e) => s + (e.total ?? 0), 0) ?? 0
@@ -126,7 +134,12 @@ export default function Dashboard() {
                 }
 
                 const latest = latestPayment(family.betalningar ?? [])
-                const bucket = paymentBucket(latest?.betalat_till_datum ?? null)
+                const paidUntil = effectivePaidUntil({
+                    latestPaidUntil: latest?.betalat_till_datum ?? null,
+                    manuellObetald: (family as { manuell_obetald?: boolean }).manuell_obetald,
+                    manuellBetalatTill: (family as { manuell_betalat_till?: string | null }).manuell_betalat_till,
+                })
+                const bucket = paymentBucket(paidUntil)
                 if (bucket === 'paid') paidCount += 1
                 else if (bucket === 'soon') soonCount += 1
                 else overdueCount += 1

@@ -16,7 +16,7 @@ import { ReadOnlyBanner } from "@/components/read-only-banner"
 interface Family {
     id: string
     familje_namn: string
-    make_namn: string
+    make_namn: string | null
     hustru_namn: string | null
     mobil_nummer: string | null
     mail: string | null
@@ -31,6 +31,7 @@ interface Family {
     created_at: string
     civilstand?: string | null
     registreringsdatum?: string | null
+    barn?: { namn?: string | null }[]
 }
 
 interface FullFamily extends Family { children: any[] }
@@ -73,7 +74,7 @@ export default function RegisterPage() {
         setLoading(true)
         const { data } = await supabase
             .from('familjer')
-            .select('*')
+            .select('*, barn(namn)')
             .eq('organisation_id', activeOrgId)
             .order('familje_namn', { ascending: true })
         setFamilies(data ?? [])
@@ -124,12 +125,14 @@ export default function RegisterPage() {
 
     useEffect(() => { fetchFamilies() }, [supabase, activeOrgId])
 
-    const filteredFamilies = families.filter(f =>
-        f.familje_namn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (f.make_namn?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
-        (f.hustru_namn?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
-        (f.ort?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
-    )
+    const filteredFamilies = families.filter(f => {
+        const q = searchQuery.toLowerCase()
+        return f.familje_namn.toLowerCase().includes(q) ||
+            (f.make_namn?.toLowerCase().includes(q) ?? false) ||
+            (f.hustru_namn?.toLowerCase().includes(q) ?? false) ||
+            (f.ort?.toLowerCase().includes(q) ?? false) ||
+            (f.barn ?? []).some(b => b.namn?.toLowerCase().includes(q))
+    })
 
     const handleExcelExport = async () => {
         if (!canExport) return
@@ -282,9 +285,20 @@ export default function RegisterPage() {
                                     <tr key={f.id}>
                                         <td className="font-semibold">{f.familje_namn}</td>
                                         <td>
-                                            <div>{f.make_namn}</div>
-                                            {f.hustru_namn && (
-                                                <div className="text-xs text-muted-foreground">{f.hustru_namn}</div>
+                                            {f.make_namn || f.hustru_namn ? (
+                                                <>
+                                                    <div>{f.make_namn}</div>
+                                                    {f.hustru_namn && (
+                                                        <div className="text-xs text-muted-foreground">{f.hustru_namn}</div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <div className="text-xs text-muted-foreground">
+                                                    {t('register.sibling_household')}
+                                                    {f.barn?.length
+                                                        ? `: ${f.barn.map(b => b.namn).filter(Boolean).join(', ')}`
+                                                        : ''}
+                                                </div>
                                             )}
                                         </td>
                                         <td className="text-muted-foreground">{f.mobil_nummer ?? '—'}</td>
@@ -443,6 +457,7 @@ export default function RegisterPage() {
                             </div>
 
                             {/* Adults */}
+                            {(selectedFamily.make_namn || selectedFamily.hustru_namn) && (
                             <div>
                                 <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
                                     {language === 'sv' ? 'Föräldrar' : 'Parents'}
@@ -472,12 +487,15 @@ export default function RegisterPage() {
                                     )}
                                 </div>
                             </div>
+                            )}
 
                             {/* Children */}
                             {selectedFamily.children?.length > 0 && (
                                 <div>
                                     <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
-                                        {language === 'sv' ? `Barn (${selectedFamily.children.length})` : `Children (${selectedFamily.children.length})`}
+                                        {selectedFamily.make_namn || selectedFamily.hustru_namn
+                                            ? (language === 'sv' ? `Barn (${selectedFamily.children.length})` : `Children (${selectedFamily.children.length})`)
+                                            : `${t('register.sibling_household')} (${selectedFamily.children.length})`}
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                         {selectedFamily.children.map((child: any, i: number) => (
