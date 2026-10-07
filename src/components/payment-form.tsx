@@ -12,6 +12,10 @@ import {
     describePaymentPeriod,
     familyMemberCounts,
     familyMonthlyFee,
+    resolvePaymentStartDate,
+    toDateOnly,
+    todayLocal,
+    type PaymentStartMode,
 } from "@/lib/payment-period"
 import { syncPaymentToIncome } from "@/lib/membership-income"
 
@@ -50,6 +54,8 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
     })
     const [previousPaidUntil, setPreviousPaidUntil] = useState<string | null>(null)
     const [memberCounts, setMemberCounts] = useState({ adults: 0, children: 0, total: 0 })
+    const [startMode, setStartMode] = useState<PaymentStartMode>('today')
+    const [customStart, setCustomStart] = useState(toDateOnly(todayLocal()))
 
     useEffect(() => {
         if (!supabase || !activeOrgId) return
@@ -96,6 +102,8 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             const previous = (latestPayments ?? []).find(p => p.id !== formData.id)?.betalat_till_datum ?? null
             setMemberCounts(counts)
             setPreviousPaidUntil(previous)
+            setStartMode(previous ? 'previous' : 'today')
+            setCustomStart(previous ?? toDateOnly(todayLocal()))
             setSelectedFamilyData(family)
             if (family.mail && !receiptEmail) setReceiptEmail(family.mail)
 
@@ -124,6 +132,11 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
 
     const paidAmount = Number(formData.summan)
     const hasPaidAmount = formData.summan.trim() !== '' && paidAmount > 0
+    const startDateIso = toDateOnly(resolvePaymentStartDate({
+        mode: startMode,
+        previousUntil: previousPaidUntil,
+        customDate: customStart,
+    }))
 
     const applyPeriod = (amountText: string, monthlyFee: number) => {
         const amount = Number(amountText)
@@ -139,6 +152,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             amount,
             monthlyFee,
             previousUntil: previousPaidUntil,
+            startDate: startDateIso,
             adults: memberCounts.adults,
             children: memberCounts.children,
         })
@@ -154,9 +168,21 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
         amount: hasPaidAmount ? paidAmount : 0,
         monthlyFee: formData.total_manads_avgift,
         previousUntil: previousPaidUntil,
+        startDate: startDateIso,
         adults: memberCounts.adults,
         children: memberCounts.children,
     })
+
+    useEffect(() => {
+        setFormData(prev => {
+            const next = applyPeriod(prev.summan, prev.total_manads_avgift)
+            if (next.betalat_till_datum === prev.betalat_till_datum && next.summan === prev.summan) {
+                return prev
+            }
+            return { ...prev, ...next }
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startMode, customStart, previousPaidUntil, memberCounts.adults, memberCounts.children])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -172,33 +198,47 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             setError(t('form.payment.error_amount'))
             return
         }
+        if (startMode === 'custom' && !customStart) {
+            setError(t('form.payment.error_start_date'))
+            return
+        }
         const period = calculatePaymentPeriod({
             amount: paidAmount,
             monthlyFee: formData.total_manads_avgift,
             previousUntil: previousPaidUntil,
+            startDate: startDateIso,
             adults: memberCounts.adults,
             children: memberCounts.children,
         })
         const validUntil = period.validUntilIso
+        const validFrom = toDateOnly(period.start)
         setLoading(true)
         setError(null)
         try {
             let newPaymentId: string | null = null
+            const missingFromCol = (message?: string) => /betalat_fran_datum|schema cache|column/i.test(message ?? '')
+            const baseRow = {
+                familj_id: formData.familj_id,
+                total_manads_avgift: formData.total_manads_avgift,
+                total_ars_avgift: formData.total_ars_avgift,
+                summan: paidAmount,
+                betalat_till_datum: validUntil,
+                betalat_via: formData.betalat_via,
+                betalnings_referens: formData.betalnings_referens,
+            }
 
             if (formData.id) {
-                const { error: err } = await supabase
+                let { error: err } = await supabase
                     .from('betalningar')
-                    .update({
-                        familj_id: formData.familj_id,
-                        total_manads_avgift: formData.total_manads_avgift,
-                        total_ars_avgift: formData.total_ars_avgift,
-                        summan: paidAmount,
-                        betalat_till_datum: validUntil,
-                        betalat_via: formData.betalat_via,
-                        betalnings_referens: formData.betalnings_referens,
-                        updated_at: new Date().toISOString(),
-                    })
+                    .update({ ...baseRow, betalat_fran_datum: validFrom, updated_at: new Date().toISOString() })
                     .eq('id', formData.id)
+                if (err && missingFromCol(err.message)) {
+                    const retry = await supabase
+                        .from('betalningar')
+                        .update({ ...baseRow, updated_at: new Date().toISOString() })
+                        .eq('id', formData.id)
+                    err = retry.error
+                }
                 if (err) throw err
                 newPaymentId = formData.id
                 logAuditAction('update', 'payment', String(formData.id), {
@@ -207,19 +247,18 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                     betalat_via: formData.betalat_via,
                 })
             } else {
-                const { data, error: err } = await supabase
+                let { data, error: err } = await supabase
                     .from('betalningar')
-                    .insert([{
-                        familj_id: formData.familj_id,
-                        total_manads_avgift: formData.total_manads_avgift,
-                        total_ars_avgift: formData.total_ars_avgift,
-                        summan: paidAmount,
-                        betalat_till_datum: validUntil,
-                        betalat_via: formData.betalat_via,
-                        betalnings_referens: formData.betalnings_referens,
-                        organisation_id: activeOrgId,
-                    }])
+                    .insert([{ ...baseRow, betalat_fran_datum: validFrom, organisation_id: activeOrgId }])
                     .select()
+                if (err && missingFromCol(err.message)) {
+                    const retry = await supabase
+                        .from('betalningar')
+                        .insert([{ ...baseRow, organisation_id: activeOrgId }])
+                        .select()
+                    data = retry.data
+                    err = retry.error
+                }
                 if (err) throw err
                 newPaymentId = data?.[0]?.id ?? null
                 logAuditAction('create', 'payment', String(newPaymentId ?? ''), {
@@ -360,6 +399,58 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                                     <option value="Annat">{t('form.payment.other')}</option>
                                 </select>
                             </div>
+                        </div>
+
+                        {/* Coverage start date */}
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold">{t('form.payment.start_from')}</label>
+                            <div className="space-y-2">
+                                {([
+                                    ['today', t('form.payment.start_today')],
+                                    ['previous', t('form.payment.start_previous')],
+                                    ['custom', t('form.payment.start_custom')],
+                                ] as const).map(([mode, label]) => {
+                                    const disabled = mode === 'previous' && !previousPaidUntil
+                                    return (
+                                        <label
+                                            key={mode}
+                                            className={`flex items-start gap-2.5 text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name="payment-start-mode"
+                                                className="mt-1"
+                                                style={{ accentColor: '#C9A84C' }}
+                                                checked={startMode === mode}
+                                                disabled={disabled}
+                                                onChange={() => setStartMode(mode)}
+                                            />
+                                            <span>
+                                                <span className="font-medium">{label}</span>
+                                                {mode === 'previous' && previousPaidUntil && (
+                                                    <span className="block text-xs text-muted-foreground">
+                                                        {t('form.payment.start_previous_value').replace('{date}', previousPaidUntil)}
+                                                    </span>
+                                                )}
+                                                {mode === 'previous' && !previousPaidUntil && (
+                                                    <span className="block text-xs text-muted-foreground">
+                                                        {t('form.payment.start_previous_none')}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </label>
+                                    )
+                                })}
+                            </div>
+                            {startMode === 'custom' && (
+                                <input
+                                    type="date"
+                                    className="input-premium"
+                                    required
+                                    value={customStart}
+                                    onChange={(e) => setCustomStart(e.target.value)}
+                                />
+                            )}
                         </div>
 
                         {/* Valid until */}

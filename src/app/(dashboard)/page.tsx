@@ -10,6 +10,7 @@ import { addDays, isBefore, parseISO } from "date-fns"
 import { useLanguage } from "@/components/language-provider"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ageFromPersonnummer, ageGroupFromAge, sexFromPersonnummer } from "@/lib/personnummer"
+import { latestPayment } from "@/lib/payment-period"
 
 type PlaceCount = { name: string; count: number }
 
@@ -124,9 +125,7 @@ export default function Dashboard() {
                     else if (sex === 'f') womenCount += 1
                 }
 
-                const latest = (family.betalningar ?? [])
-                    .slice()
-                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+                const latest = latestPayment(family.betalningar ?? [])
                 const bucket = paymentBucket(latest?.betalat_till_datum ?? null)
                 if (bucket === 'paid') paidCount += 1
                 else if (bucket === 'soon') soonCount += 1

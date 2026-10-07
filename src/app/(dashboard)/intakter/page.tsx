@@ -85,13 +85,27 @@ export default function IntakterPage() {
     const confirmDelete = async () => {
         if (!supabase || !deleting?.id) return
         setDeleteLoading(true)
-        const { error } = await supabase.from('intakter').delete().eq('id', deleting.id)
+        const { error: rpcError } = await supabase.rpc('delete_income_entry', { p_income_id: deleting.id })
+        let error = rpcError
+        if (error && /delete_income_entry|schema cache|function/i.test(error.message ?? '')) {
+            if (deleting.betalning_id) {
+                const paymentDel = await supabase.from('betalningar').delete().eq('id', deleting.betalning_id)
+                error = paymentDel.error
+            }
+            if (!error) {
+                const incomeDel = await supabase.from('intakter').delete().eq('id', deleting.id)
+                error = incomeDel.error
+            }
+        }
         setDeleteLoading(false)
         if (error) {
             alert(error.message)
             return
         }
-        logAuditAction('delete', 'income', String(deleting.id), { total: deleting.total })
+        logAuditAction('delete', 'income', String(deleting.id), {
+            total: deleting.total,
+            betalning_id: deleting.betalning_id ?? null,
+        })
         setDeleting(null)
         fetchItems()
     }
@@ -277,6 +291,9 @@ export default function IntakterPage() {
                                     {' '}
                                     <strong>{Number(deleting.total).toLocaleString('sv-SE')} kr</strong>
                                 </>
+                            )}
+                            {deleting.betalning_id && (
+                                <span className="block mt-2">{t('page.income.confirm_delete_payment')}</span>
                             )}
                         </p>
                         <div className="flex gap-3">

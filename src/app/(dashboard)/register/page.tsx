@@ -29,9 +29,25 @@ interface Family {
     hustru_personnummer: string | null
     hustru_manads_avgift: number
     created_at: string
+    civilstand?: string | null
+    registreringsdatum?: string | null
 }
 
 interface FullFamily extends Family { children: any[] }
+
+function formatRegDate(value: string | null | undefined) {
+    if (!value) return '—'
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`
+    return value
+}
+
+function maritalLabel(value: string | null | undefined, language: string) {
+    if (value === 'gift') return language === 'sv' ? 'Gift' : 'Married'
+    if (value === 'ogift') return language === 'sv' ? 'Ogift' : 'Unmarried'
+    if (value === 'anka') return language === 'sv' ? 'Änka / änkling' : 'Widow / widower'
+    return '—'
+}
 
 export default function RegisterPage() {
     const supabase = useMemo(() => {
@@ -129,6 +145,8 @@ export default function RegisterPage() {
                 language === 'sv' ? 'Ort' : 'City',
                 language === 'sv' ? 'Postnummer' : 'Zip',
                 language === 'sv' ? 'Land' : 'Country',
+                language === 'sv' ? 'Civilstånd' : 'Marital status',
+                language === 'sv' ? 'Registreringsdatum' : 'Registered',
                 language === 'sv' ? 'Månadsavgift Make' : 'Monthly Fee Husband',
                 language === 'sv' ? 'Månadsavgift Hustru' : 'Monthly Fee Wife',
             ]
@@ -136,6 +154,8 @@ export default function RegisterPage() {
                 f.familje_namn, f.make_namn, f.hustru_namn ?? '',
                 f.mobil_nummer ?? '', f.mail ?? '',
                 f.adress ?? '', f.ort ?? '', f.post_kod ?? '', f.land ?? 'Sverige',
+                maritalLabel(f.civilstand, language),
+                formatRegDate(f.registreringsdatum),
                 f.make_manads_avgift, f.hustru_manads_avgift,
             ])
             await exportToExcel('Familjeregister', language === 'sv' ? 'Familjer' : 'Families', headers, rows)
@@ -242,6 +262,7 @@ export default function RegisterPage() {
                                 <th>{t('table.parents')}</th>
                                 <th>{t('table.mobile')}</th>
                                 <th>{t('table.city')}</th>
+                                <th className="hidden md:table-cell">{t('table.registered_at')}</th>
                                 <th className="text-right">{t('table.actions')}</th>
                             </tr>
                         </thead>
@@ -249,9 +270,9 @@ export default function RegisterPage() {
                             {loading ? (
                                 Array.from({ length: 4 }).map((_, i) => (
                                     <tr key={i}>
-                                        {Array.from({ length: 5 }).map((_, j) => (
+                                        {Array.from({ length: 6 }).map((_, j) => (
                                             <td key={j}>
-                                                <div className="h-4 bg-secondary rounded animate-pulse" style={{ width: j === 4 ? 64 : '80%' }} />
+                                                <div className="h-4 bg-secondary rounded animate-pulse" style={{ width: j === 5 ? 64 : '80%' }} />
                                             </td>
                                         ))}
                                     </tr>
@@ -268,6 +289,7 @@ export default function RegisterPage() {
                                         </td>
                                         <td className="text-muted-foreground">{f.mobil_nummer ?? '—'}</td>
                                         <td>{f.ort ?? '—'}</td>
+                                        <td className="hidden md:table-cell text-muted-foreground">{formatRegDate(f.registreringsdatum)}</td>
                                         <td>
                                             <div className="flex justify-end gap-1">
                                                 {canEditRegister && (
@@ -301,7 +323,7 @@ export default function RegisterPage() {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-16 text-muted-foreground">
+                                    <td colSpan={6} className="text-center py-16 text-muted-foreground">
                                         <Users size={40} className="mx-auto mb-3 opacity-20" />
                                         {searchQuery ? t('table.empty_search') : t('table.empty_register')}
                                     </td>
@@ -409,6 +431,8 @@ export default function RegisterPage() {
                                         [language === 'sv' ? 'Adress' : 'Address', selectedFamily.adress],
                                         [language === 'sv' ? 'Ort' : 'City', `${selectedFamily.ort ?? ''} ${selectedFamily.post_kod ?? ''}`.trim()],
                                         [language === 'sv' ? 'Land' : 'Country', selectedFamily.land ?? 'Sverige'],
+                                        [language === 'sv' ? 'Civilstånd' : 'Marital status', maritalLabel(selectedFamily.civilstand, language)],
+                                        [language === 'sv' ? 'Registreringsdatum' : 'Registered', formatRegDate(selectedFamily.registreringsdatum)],
                                     ].map(([label, value]) => (
                                         <div key={label} className="bg-secondary rounded-[10px] p-3">
                                             <div className="text-xs text-muted-foreground mb-1">{label}</div>

@@ -6,16 +6,14 @@ import { X, Plus, Trash2, Loader2 } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { logAuditAction } from "@/app/actions/audit"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
-import { DEFAULT_ADULT_FEE, DEFAULT_CHILD_FEE, monthlyFeeFromPersonnummer } from "@/lib/payment-period"
-import { ageFromPersonnummer } from "@/lib/personnummer"
+import { DEFAULT_ADULT_FEE, DEFAULT_CHILD_FEE, monthlyFeeFromPersonnummer, toDateOnly, todayLocal } from "@/lib/payment-period"
+import { ageFromPersonnummer, isValidPersonnummer, sanitizePersonnummerInput } from "@/lib/personnummer"
 
 interface FamilyFormProps {
     onClose: () => void
     onSuccess: () => void
     initialData?: any
 }
-
-const SSN_REGEX = /^\d{12}$/
 
 export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps) {
     const supabase = useMemo(() => {
@@ -44,6 +42,9 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         ort:                  initialData?.ort                  || "",
         post_kod:             initialData?.post_kod             || "",
         land:                 initialData?.land                 || "Sverige",
+        civilstand:           initialData?.civilstand           || "",
+        registreringsdatum:   initialData?.registreringsdatum
+            || (initialData?.id ? "2026-01-01" : toDateOnly(todayLocal())),
     })
 
     const [children, setChildren] = useState<any[]>(
@@ -68,7 +69,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
     }
 
     const setAdultPersonnummer = (who: 'make' | 'hustru', raw: string) => {
-        const pn = raw.replace(/\D/g, '')
+        const pn = sanitizePersonnummerInput(raw)
         if (who === 'make') {
             setFamilyData(prev => ({
                 ...prev,
@@ -121,7 +122,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
     }
 
     const setChildPersonnummer = (key: string, raw: string) => {
-        const pn = raw.replace(/\D/g, '')
+        const pn = sanitizePersonnummerInput(raw)
         setChildren(prev => prev.map(c => {
             if (c._key !== key) return c
             const age = ageFromPersonnummer(pn)
@@ -206,11 +207,17 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
         if (!hasMake && !hasHustru) {
             errors.push('make_namn', 'hustru_namn')
         }
-        if (hasMake && familyData.make_personnummer && !SSN_REGEX.test(familyData.make_personnummer)) {
+        if (hasMake && familyData.make_personnummer && !isValidPersonnummer(familyData.make_personnummer)) {
             errors.push('make_personnummer')
         }
-        if (hasHustru && familyData.hustru_personnummer && !SSN_REGEX.test(familyData.hustru_personnummer)) {
+        if (hasHustru && familyData.hustru_personnummer && !isValidPersonnummer(familyData.hustru_personnummer)) {
             errors.push('hustru_personnummer')
+        }
+        if (children.some(c => c.personnummer && !isValidPersonnummer(c.personnummer))) {
+            errors.push('child_personnummer')
+        }
+        if (!familyData.registreringsdatum) {
+            errors.push('registreringsdatum')
         }
 
         if (errors.length > 0) {
@@ -322,6 +329,26 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                         <option value="Annat">{t('form.family.country_other')}</option>
                                     </select>
                                 </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-semibold">{t('form.family.marital_status')}</label>
+                                    <select className="input-premium" value={familyData.civilstand} onChange={e => set('civilstand', e.target.value)}>
+                                        <option value="">{t('form.family.marital_unset')}</option>
+                                        <option value="gift">{t('form.family.marital_married')}</option>
+                                        <option value="ogift">{t('form.family.marital_unmarried')}</option>
+                                        <option value="anka">{t('form.family.marital_widow')}</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-semibold">{t('form.family.registered_at')}</label>
+                                    <input
+                                        type="date"
+                                        className={inputCls('registreringsdatum')}
+                                        value={familyData.registreringsdatum}
+                                        onChange={e => set('registreringsdatum', e.target.value)}
+                                        required
+                                    />
+                                    <p className="text-xs text-muted-foreground">{t('form.family.registered_at_hint')}</p>
+                                </div>
                             </div>
 
                             {/* Parents */}
@@ -330,6 +357,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                     {t('form.family.adults')}
                                 </h3>
                                 <p className="text-xs text-muted-foreground -mt-2">{t('form.family.fee_auto_hint')}</p>
+                                <p className="text-xs text-muted-foreground -mt-2">{t('form.family.ssn_hint')}</p>
                                 {/* Husband */}
                                 <div className="p-4 rounded-[10px] border border-border bg-secondary/30 space-y-3">
                                     <div className="space-y-1.5">
@@ -340,7 +368,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.ssn')}</label>
-                                            <input className={inputCls('make_personnummer')} maxLength={12} placeholder="ÅÅÅÅMMDDNNNN"
+                                            <input className={inputCls('make_personnummer')} maxLength={12} placeholder="19800101xxxx"
                                                 value={familyData.make_personnummer}
                                                 onChange={e => setAdultPersonnummer('make', e.target.value)} />
                                         </div>
@@ -371,7 +399,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="space-y-1.5">
                                             <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.ssn')}</label>
-                                            <input className={inputCls('hustru_personnummer')} maxLength={12} placeholder="ÅÅÅÅMMDDNNNN"
+                                            <input className={inputCls('hustru_personnummer')} maxLength={12} placeholder="19800101xxxx"
                                                 value={familyData.hustru_personnummer}
                                                 onChange={e => setAdultPersonnummer('hustru', e.target.value)} />
                                         </div>
@@ -428,7 +456,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                             <div className="grid grid-cols-2 gap-2">
                                                 <div className="space-y-1">
                                                     <label className="text-xs font-semibold text-muted-foreground uppercase">{t('form.family.ssn')}</label>
-                                                    <input className="input-premium" maxLength={12} placeholder="ÅÅÅÅMMDDNNNN"
+                                                    <input className={`input-premium ${isErr('child_personnummer') && child.personnummer && !isValidPersonnummer(child.personnummer) ? 'border-red-400' : ''}`} maxLength={12} placeholder="19800101xxxx"
                                                         value={child.personnummer}
                                                         onChange={e => setChildPersonnummer(child._key, e.target.value)} />
                                                 </div>
