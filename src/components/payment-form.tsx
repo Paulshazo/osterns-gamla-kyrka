@@ -56,6 +56,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
     const [memberCounts, setMemberCounts] = useState({ adults: 0, children: 0, total: 0 })
     const [startMode, setStartMode] = useState<PaymentStartMode>('today')
     const [customStart, setCustomStart] = useState(toDateOnly(todayLocal()))
+    const [manualUntil, setManualUntil] = useState(false)
 
     useEffect(() => {
         if (!supabase || !activeOrgId) return
@@ -160,7 +161,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             total_manads_avgift: monthlyFee,
             total_ars_avgift: period.annualFee,
             summan: amountText,
-            betalat_till_datum: period.validUntilIso,
+            betalat_till_datum: manualUntil ? formData.betalat_till_datum : period.validUntilIso,
         }
     }
 
@@ -174,6 +175,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
     })
 
     useEffect(() => {
+        if (manualUntil) return
         setFormData(prev => {
             const next = applyPeriod(prev.summan, prev.total_manads_avgift)
             if (next.betalat_till_datum === prev.betalat_till_datum && next.summan === prev.summan) {
@@ -182,7 +184,7 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             return { ...prev, ...next }
         })
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [startMode, customStart, previousPaidUntil, memberCounts.adults, memberCounts.children])
+    }, [startMode, customStart, previousPaidUntil, memberCounts.adults, memberCounts.children, manualUntil])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -210,7 +212,9 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
             adults: memberCounts.adults,
             children: memberCounts.children,
         })
-        const validUntil = period.validUntilIso
+        const validUntil = manualUntil && formData.betalat_till_datum
+            ? formData.betalat_till_datum
+            : period.validUntilIso
         const validFrom = toDateOnly(period.start)
         setLoading(true)
         setError(null)
@@ -266,6 +270,18 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                     summan: paidAmount,
                     betalat_via: formData.betalat_via,
                 })
+            }
+
+            const { error: clearOverrideErr } = await supabase.rpc('set_family_payment_status', {
+                p_family_id: formData.familj_id,
+                p_manuell_obetald: false,
+                p_manuell_betalat_till: null,
+            })
+            if (clearOverrideErr) {
+                await supabase
+                    .from('familjer')
+                    .update({ manuell_obetald: false, manuell_betalat_till: null })
+                    .eq('id', formData.familj_id)
             }
 
             await syncPaymentToIncome(supabase, {
@@ -336,7 +352,9 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                                 <option value="">{t('form.payment.family_placeholder')}</option>
                                 {families.map(f => (
                                     <option key={f.id} value={f.id}>
-                                        {f.familje_namn} ({f.make_namn ?? f.hustru_namn ?? ''})
+                                        {f.make_namn || f.hustru_namn
+                                            ? `${f.familje_namn} (${f.make_namn || f.hustru_namn})`
+                                            : f.familje_namn}
                                     </option>
                                 ))}
                             </select>
@@ -458,20 +476,23 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                             <label className="text-sm font-semibold">{t('form.payment.valid_until')}</label>
                             <input
                                 type="date"
-                                readOnly
-                                tabIndex={-1}
                                 className="input-premium"
                                 required={hasPaidAmount}
                                 value={formData.betalat_till_datum}
-                                style={{ background: '#F7F3EC', color: '#6B6355' }}
+                                onChange={(e) => {
+                                    setManualUntil(true)
+                                    setFormData(prev => ({ ...prev, betalat_till_datum: e.target.value }))
+                                }}
                             />
-                            {formData.familj_id && formData.total_manads_avgift > 0 && hasPaidAmount && (
+                            {formData.familj_id && formData.total_manads_avgift > 0 && hasPaidAmount && !manualUntil && (
                                 <div className="rounded-[10px] border p-3 text-xs leading-relaxed" style={{ background: '#FFF8EE', borderColor: '#FCD34D', color: '#78350F' }}>
                                     <p className="font-semibold mb-1">{t('form.payment.period_title')}</p>
                                     <p>{describePaymentPeriod(periodPreview, language === 'sv' ? 'sv' : 'en')}</p>
                                 </div>
                             )}
-                            <p className="text-xs text-muted-foreground">{t('form.payment.valid_auto')}</p>
+                            <p className="text-xs text-muted-foreground">
+                                {manualUntil ? t('form.payment.valid_manual') : t('form.payment.valid_auto')}
+                            </p>
                         </div>
 
                         {/* Reference */}

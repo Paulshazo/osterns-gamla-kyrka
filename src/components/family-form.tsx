@@ -203,9 +203,10 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
 
         const hasMake   = !!familyData.make_namn?.trim()
         const hasHustru = !!familyData.hustru_namn?.trim()
+        const namedChildren = children.filter(c => c.namn?.trim())
 
-        if (!hasMake && !hasHustru) {
-            errors.push('make_namn', 'hustru_namn')
+        if (!hasMake && !hasHustru && namedChildren.length === 0) {
+            errors.push('make_namn', 'hustru_namn', 'children')
         }
         if (hasMake && familyData.make_personnummer && !isValidPersonnummer(familyData.make_personnummer)) {
             errors.push('make_personnummer')
@@ -226,8 +227,10 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
             return
         }
 
-        // Show inline confirmation instead of window.confirm
-        if (!hasMake && hasHustru) {
+        if (!hasMake && !hasHustru && namedChildren.length > 0) {
+            setConfirmMsg(t('form.family.confirm_siblings_only'))
+            setPendingSubmit(true)
+        } else if (!hasMake && hasHustru) {
             setConfirmMsg(t('form.family.confirm_no_husband'))
             setPendingSubmit(true)
         } else if (hasMake && !hasHustru) {
@@ -356,6 +359,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                 <h3 className="font-semibold text-sm border-b border-border pb-2 uppercase tracking-wider text-muted-foreground">
                                     {t('form.family.adults')}
                                 </h3>
+                                <p className="text-xs text-muted-foreground -mt-2">{t('form.family.adults_optional')}</p>
                                 <p className="text-xs text-muted-foreground -mt-2">{t('form.family.fee_auto_hint')}</p>
                                 <p className="text-xs text-muted-foreground -mt-2">{t('form.family.ssn_hint')}</p>
                                 {/* Husband */}
@@ -483,7 +487,7 @@ export function FamilyForm({ onClose, onSuccess, initialData }: FamilyFormProps)
                                     )
                                 })}
                                 {children.length === 0 && (
-                                    <div className="col-span-full py-8 text-center border-2 border-dashed border-border rounded-[10px] text-muted-foreground text-sm">
+                                    <div className={`col-span-full py-8 text-center border-2 border-dashed rounded-[10px] text-muted-foreground text-sm ${isErr('children') ? 'border-red-400' : 'border-border'}`}>
                                         {t('form.family.no_children')}
                                     </div>
                                 )}
