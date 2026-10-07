@@ -9,6 +9,7 @@ import { exportToExcel, exportToPDF } from "@/lib/export"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { ReadOnlyBanner } from "@/components/read-only-banner"
 import { logAuditAction } from "@/app/actions/audit"
+import { deleteIncomeAndLinkedPayment } from "@/lib/membership-income"
 
 const months = ["Januari","Februari","Mars","April","Maj","Juni","Juli","Augusti","September","Oktober","November","December"]
 
@@ -85,21 +86,10 @@ export default function IntakterPage() {
     const confirmDelete = async () => {
         if (!supabase || !deleting?.id) return
         setDeleteLoading(true)
-        const { error: rpcError } = await supabase.rpc('delete_income_entry', { p_income_id: deleting.id })
-        let error = rpcError
-        if (error && /delete_income_entry|schema cache|function/i.test(error.message ?? '')) {
-            if (deleting.betalning_id) {
-                const paymentDel = await supabase.from('betalningar').delete().eq('id', deleting.betalning_id)
-                error = paymentDel.error
-            }
-            if (!error) {
-                const incomeDel = await supabase.from('intakter').delete().eq('id', deleting.id)
-                error = incomeDel.error
-            }
-        }
+        const { error } = await deleteIncomeAndLinkedPayment(supabase, deleting)
         setDeleteLoading(false)
         if (error) {
-            alert(error.message)
+            alert(error)
             return
         }
         logAuditAction('delete', 'income', String(deleting.id), {
@@ -292,7 +282,7 @@ export default function IntakterPage() {
                                     <strong>{Number(deleting.total).toLocaleString('sv-SE')} kr</strong>
                                 </>
                             )}
-                            {deleting.betalning_id && (
+                            {(deleting.betalning_id || String(deleting.rapporterat_av ?? '').startsWith('Medlemsavgift')) && (
                                 <span className="block mt-2">{t('page.income.confirm_delete_payment')}</span>
                             )}
                         </p>
