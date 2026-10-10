@@ -144,6 +144,9 @@ export default function UtskickPage() {
                 ? `Skickade till ${response.sent} medlemmar.${extra}`
                 : `Sent to ${response.sent} members.${extra}`,
         )
+        setSubject("")
+        setBody("")
+        setSelected({})
     }
 
     return (
