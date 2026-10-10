@@ -37,7 +37,7 @@ const navItems = [
     { key: "nav.expenses",   href: "/utgifter",     icon: TrendingDown,permission: "expenses" },
     { key: "nav.income",     href: "/intakter",     icon: TrendingUp,  permission: "income" },
     { key: "nav.stats",      href: "/statistik",    icon: BarChart3,   permission: "stats" },
-    { key: "nav.mailings",   href: "/utskick",      icon: Mail,        permission: "stats" },
+    { key: "nav.mailings",   href: "/utskick",      icon: Mail,        permission: "users" },
     { key: "nav.documents",  href: "/dokument",     icon: FileText },
     { key: "nav.settings",   href: "/installningar",icon: Settings,    permission: "settings" },
     { key: "nav.users",      href: "/anvandare",    icon: UserCog,     permission: "users" },

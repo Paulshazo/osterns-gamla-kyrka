@@ -116,9 +116,7 @@ async function assertCanSendMemberMail(orgId: string) {
         .maybeSingle()
     if (!membership) throw new Error('Inte behörig till organisationen')
     if (membership.role === 'admin') return { user, supabase }
-    const permissions = Array.isArray(membership.permissions) ? membership.permissions : []
-    if (permissions.includes('stats')) return { user, supabase }
-    throw new Error('Inte behörig att skicka medlemsutskick')
+    throw new Error('Bara administratörer kan skicka medlemsutskick')
 }
 
 // --------------------------------------------------------
