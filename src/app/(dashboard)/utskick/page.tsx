@@ -6,6 +6,12 @@ import { Mail, RefreshCcw, Search, Send, Shield, Users } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { sendMemberMailAction } from "@/app/actions/email"
+import {
+    hasValidEmail,
+    selectionAfterModeChange,
+    selectionAfterToggle,
+    selectionForAllWithEmail,
+} from "@/lib/mailing-selection"
 
 type Contact = {
     id: string
@@ -13,10 +19,6 @@ type Contact = {
     make_namn: string | null
     hustru_namn: string | null
     mail: string | null
-}
-
-function hasValidEmail(value: string | null | undefined) {
-    return Boolean(value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()))
 }
 
 export default function UtskickPage() {
@@ -83,19 +85,25 @@ export default function UtskickPage() {
     const selectedWithEmail = selectedIds.filter(id => hasValidEmail(contacts.find(c => c.id === id)?.mail))
     const recipientCount = mode === 'all' ? withEmail.length : selectedWithEmail.length
 
+    const chooseMode = (nextMode: 'all' | 'selected') => {
+        setSelected(prev => selectionAfterModeChange(mode, nextMode, contacts, prev))
+        setMode(nextMode)
+    }
+
     const toggle = (id: string) => {
-        setSelected(prev => ({ ...prev, [id]: !prev[id] }))
+        setSelected(prev => selectionAfterToggle(mode, contacts, prev, id))
         setMode('selected')
     }
 
     const selectAllWithEmail = () => {
-        const next: Record<string, boolean> = {}
-        for (const contact of withEmail) next[contact.id] = true
-        setSelected(next)
+        setSelected(selectionForAllWithEmail(contacts))
         setMode('selected')
     }
 
-    const clearSelection = () => setSelected({})
+    const clearSelection = () => {
+        setSelected({})
+        setMode('selected')
+    }
 
     const handleSend = async () => {
         setError(null)
@@ -220,7 +228,7 @@ export default function UtskickPage() {
                                         <button
                                             key={value}
                                             type="button"
-                                            onClick={() => setMode(value)}
+                                            onClick={() => chooseMode(value)}
                                             className="flex-1 py-2.5 rounded-[10px] text-sm font-semibold border transition-colors"
                                             style={mode === value
                                                 ? { background: '#1A1A1A', color: 'white', borderColor: 'transparent' }
