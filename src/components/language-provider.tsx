@@ -176,7 +176,8 @@ const translations = {
         "page.expenses.all_months":  "Alla månader",
         "page.expenses.date_month":  "Datum/Månad",
         "page.expenses.week":        "Vecka",
-        "page.expenses.category":    "Kategori (Hyra/Fru/Räk/And)",
+        "page.expenses.category":    "Kategori",
+        "page.expenses.paid_for":    "Vad som betalats",
         "page.expenses.empty":       "Inga utgifter registrerade.",
         "page.expenses.summary":     "Månadssammanfattning",
         "page.expenses.rent":        "Hyra",
@@ -191,6 +192,8 @@ const translations = {
         "page.expenses.month":       "Månad",
         "page.expenses.reported_by": "Rapporterat av",
         "page.expenses.date":        "Datum",
+        "page.expenses.comment":     "Beskrivning",
+        "page.expenses.comment_placeholder": "T.ex. elräkning, städning eller vad utgiften gäller",
 
         // Family form
         "form.family.edit_title":         "Redigera familj",
@@ -545,7 +548,8 @@ const translations = {
         "page.expenses.all_months":   "All months",
         "page.expenses.date_month":   "Date/Month",
         "page.expenses.week":         "Week",
-        "page.expenses.category":     "Category (Rent/Brfst/Bills/Other)",
+        "page.expenses.category":     "Category",
+        "page.expenses.paid_for":     "Paid for",
         "page.expenses.empty":        "No expenses registered.",
         "page.expenses.summary":      "Monthly summary",
         "page.expenses.rent":         "Rent",
@@ -560,6 +564,8 @@ const translations = {
         "page.expenses.month":        "Month",
         "page.expenses.reported_by":  "Reported by",
         "page.expenses.date":         "Date",
+        "page.expenses.comment":      "Description",
+        "page.expenses.comment_placeholder": "E.g. electricity, cleaning, or what the expense is for",
 
         // Family form
         "form.family.edit_title":         "Edit family",
