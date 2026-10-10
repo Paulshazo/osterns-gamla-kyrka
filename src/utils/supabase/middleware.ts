@@ -79,7 +79,7 @@ export async function updateSession(request: NextRequest) {
                     isOrgAdmin = membership?.role === 'admin'
                 }
 
-                const adminOnlyRoutes = ['/anvandare', '/loggar']
+                const adminOnlyRoutes = ['/anvandare', '/loggar', '/utskick']
                 if (role !== 'superadmin' && role !== 'superuser' && !isOrgAdmin) {
                     if (adminOnlyRoutes.some(route => pathname.startsWith(route))) {
                         const redirectUrl = request.nextUrl.clone()
@@ -98,7 +98,7 @@ export async function updateSession(request: NextRequest) {
 
                 // Superuser: block write-oriented org admin pages
                 if (role === 'superuser') {
-                    const blocked = ['/anvandare', '/installningar', '/loggar']
+                    const blocked = ['/anvandare', '/installningar', '/loggar', '/utskick']
                     if (blocked.some(route => pathname.startsWith(route))) {
                         const redirectUrl = request.nextUrl.clone()
                         redirectUrl.pathname = '/super-admin'

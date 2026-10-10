@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { createClient } from "@/utils/supabase/client"
-import { Mail, RefreshCcw, Search, Send, Users } from "lucide-react"
+import { Mail, RefreshCcw, Search, Send, Shield, Users } from "lucide-react"
 import { useLanguage } from "@/components/language-provider"
 import { useActiveOrg } from "@/hooks/useActiveOrg"
-import { ReadOnlyBanner } from "@/components/read-only-banner"
 import { sendMemberMailAction } from "@/app/actions/email"
 
 type Contact = {
@@ -25,8 +24,8 @@ export default function UtskickPage() {
         try { return createClient() } catch { return null }
     }, [])
     const { t, language } = useLanguage()
-    const { activeOrgId, canEdit } = useActiveOrg()
-    const canSend = canEdit('stats')
+    const { activeOrgId, canManageUsers, loading: orgLoading } = useActiveOrg()
+    const canSend = canManageUsers
 
     const [contacts, setContacts] = useState<Contact[]>([])
     const [loading, setLoading] = useState(true)
@@ -149,6 +148,27 @@ export default function UtskickPage() {
         setSelected({})
     }
 
+    if (orgLoading) {
+        return (
+            <div className="flex items-center justify-center h-[50vh] text-muted-foreground gap-3">
+                <RefreshCcw size={18} className="animate-spin" />
+                {t('common.loading')}
+            </div>
+        )
+    }
+
+    if (!canManageUsers) {
+        return (
+            <div className="flex items-center justify-center h-[50vh]">
+                <div className="text-center">
+                    <Shield size={48} style={{ color: '#DDD8CE' }} className="mx-auto mb-4" />
+                    <h2 className="text-xl font-bold">{language === 'sv' ? 'Åtkomst nekad' : 'Access denied'}</h2>
+                    <p className="text-muted-foreground mt-2">{t('page.mailings.error_permission')}</p>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div>
             <div className="page-header flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -164,8 +184,6 @@ export default function UtskickPage() {
                     <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
                 </button>
             </div>
-
-            {!canSend && <ReadOnlyBanner />}
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                 <div className="lg:col-span-3">
