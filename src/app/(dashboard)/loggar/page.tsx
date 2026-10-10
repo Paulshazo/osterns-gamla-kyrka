@@ -7,6 +7,7 @@ import { Search, ScrollText, RefreshCw, User, LogIn, LogOut, Plus, Edit2, Trash2
 import { useActiveOrg } from "@/hooks/useActiveOrg"
 import { format } from "date-fns"
 import { sv, enUS } from "date-fns/locale"
+import { formatAuditDetails, formatAuditResource } from "@/lib/audit-details"
 
 type AuditLog = {
     id: string
@@ -99,10 +100,20 @@ export default function LoggarPage() {
     }
 
     const filtered = logs.filter(log => {
+        const detailsText = formatAuditDetails({
+            action: log.action,
+            resource: log.resource,
+            details: log.details,
+            language,
+        })
+        const resourceText = formatAuditResource(log.resource, language)
+        const q = search.toLowerCase()
         const matchSearch = !search ||
-            (log.user_email?.toLowerCase().includes(search.toLowerCase())) ||
-            (log.action?.toLowerCase().includes(search.toLowerCase())) ||
-            (log.resource?.toLowerCase().includes(search.toLowerCase()))
+            (log.user_email?.toLowerCase().includes(q)) ||
+            (log.action?.toLowerCase().includes(q)) ||
+            (log.resource?.toLowerCase().includes(q)) ||
+            formatAuditResource(log.resource, language).toLowerCase().includes(q) ||
+            detailsText.toLowerCase().includes(q)
         const matchAction = filterAction === 'all' || log.action === filterAction
         return matchSearch && matchAction
     })
@@ -208,20 +219,16 @@ export default function LoggarPage() {
                                             </div>
                                         </td>
                                         <td><ActionBadge action={log.action} language={language} /></td>
-                                        <td className="text-sm">
-                                            {log.resource ? (
-                                                <span className="font-medium capitalize">{log.resource}</span>
-                                            ) : '—'}
-                                            {log.resource_id && (
-                                                <span className="text-xs text-muted-foreground ml-1">
-                                                    #{log.resource_id.slice(0, 8)}
-                                                </span>
-                                            )}
+                                        <td className="text-sm font-medium">
+                                            {formatAuditResource(log.resource, language)}
                                         </td>
-                                        <td className="text-xs text-muted-foreground max-w-xs">
-                                            {log.details && Object.keys(log.details).length > 0
-                                                ? JSON.stringify(log.details).slice(0, 80)
-                                                : '—'}
+                                        <td className="text-sm text-foreground max-w-md whitespace-normal">
+                                            {formatAuditDetails({
+                                                action: log.action,
+                                                resource: log.resource,
+                                                details: log.details,
+                                                language,
+                                            })}
                                         </td>
                                     </tr>
                                 ))}

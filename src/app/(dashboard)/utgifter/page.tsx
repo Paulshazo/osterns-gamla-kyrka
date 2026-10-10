@@ -136,7 +136,15 @@ export default function UtgifterPage() {
             alert(error.message)
             return
         }
-        logAuditAction('delete', 'expense', String(deleting.id), { total: deleting.total })
+        logAuditAction('delete', 'expense', String(deleting.id), {
+            total: deleting.total,
+            manad: deleting.manad,
+            hyra: deleting.hyra,
+            frukost: deleting.frukost,
+            rakning: deleting.rakning,
+            annat: deleting.annat,
+            kommentar: deleting.kommentar,
+        })
         setDeleting(null)
         fetchItems()
     }
@@ -419,7 +427,15 @@ function ExpenseForm({ supabase, t, activeOrgId, initialData, onClose, onSuccess
             setError(saveError.message)
             return
         }
-        logAuditAction(isEdit ? 'update' : 'create', 'expense', String(initialData?.id ?? ''), { total })
+        logAuditAction(isEdit ? 'update' : 'create', 'expense', String(initialData?.id ?? ''), {
+            total,
+            manad: data.manad,
+            hyra,
+            frukost,
+            rakning,
+            annat,
+            kommentar: data.kommentar.trim() || null,
+        })
         onSuccess()
     }
 
