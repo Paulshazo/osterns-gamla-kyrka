@@ -21,6 +21,19 @@ function toAmount(value: string) {
     return Number.isFinite(n) && n > 0 ? Math.round(n) : 0
 }
 
+function expenseCategories(item: any, t: (key: string) => string) {
+    const parts: { label: string; amount: number }[] = []
+    const add = (key: string, value: unknown) => {
+        const amount = Number(value) || 0
+        if (amount > 0) parts.push({ label: t(key), amount })
+    }
+    add('page.expenses.rent', item.hyra)
+    add('page.expenses.breakfast', item.frukost)
+    add('page.expenses.bills', item.rakning)
+    add('page.expenses.other', item.annat)
+    return parts
+}
+
 export default function UtgifterPage() {
     const supabase = useMemo(() => {
         try { return createClient() } catch { return null }
@@ -66,8 +79,28 @@ export default function UtgifterPage() {
         if (!canExport) return
         setExporting(true)
         try {
-            const headers = [language === 'sv' ? 'Datum' : 'Date', language === 'sv' ? 'Månad' : 'Month', 'Vecka', language === 'sv' ? 'Hyra' : 'Rent', language === 'sv' ? 'Frukost' : 'Breakfast', language === 'sv' ? 'Räkningar' : 'Bills', language === 'sv' ? 'Annat' : 'Other', 'Total kr']
-            const rows = items.map(i => [i.datum, i.manad, i.vecka, i.hyra ?? 0, i.frukost ?? 0, i.rakning ?? 0, i.annat ?? 0, i.total ?? 0])
+            const headers = [
+                language === 'sv' ? 'Datum' : 'Date',
+                language === 'sv' ? 'Månad' : 'Month',
+                'Vecka',
+                language === 'sv' ? 'Vad som betalats' : 'Paid for',
+                language === 'sv' ? 'Hyra' : 'Rent',
+                language === 'sv' ? 'Frukost' : 'Breakfast',
+                language === 'sv' ? 'Räkningar' : 'Bills',
+                language === 'sv' ? 'Annat' : 'Other',
+                'Total kr',
+            ]
+            const rows = items.map(i => [
+                i.datum,
+                i.manad,
+                i.vecka,
+                expenseCategories(i, t).map(p => `${p.label} ${p.amount} kr`).join(', ') || '—',
+                i.hyra ?? 0,
+                i.frukost ?? 0,
+                i.rakning ?? 0,
+                i.annat ?? 0,
+                i.total ?? 0,
+            ])
             await exportToExcel('Utgifter', language === 'sv' ? 'Utgifter' : 'Expenses', headers, rows)
         } finally { setExporting(false) }
     }
@@ -76,8 +109,20 @@ export default function UtgifterPage() {
         if (!canExport) return
         setExporting(true)
         try {
-            const headers = [language === 'sv' ? 'Datum' : 'Date', language === 'sv' ? 'Månad' : 'Month', 'Vecka', 'Total kr']
-            const rows = items.map(i => [i.datum, i.manad, `V.${i.vecka}`, `${i.total ?? 0} kr`])
+            const headers = [
+                language === 'sv' ? 'Datum' : 'Date',
+                language === 'sv' ? 'Månad' : 'Month',
+                'Vecka',
+                language === 'sv' ? 'Vad som betalats' : 'Paid for',
+                'Total kr',
+            ]
+            const rows = items.map(i => [
+                i.datum,
+                i.manad,
+                `V.${i.vecka}`,
+                expenseCategories(i, t).map(p => `${p.label} ${p.amount} kr`).join(', ') || '—',
+                `${i.total ?? 0} kr`,
+            ])
             await exportToPDF('Utgifter', language === 'sv' ? 'Utgifter' : 'Expenses', headers, rows)
         } finally { setExporting(false) }
     }
@@ -152,7 +197,7 @@ export default function UtgifterPage() {
                                         <th>{t('page.expenses.date_month')}</th>
                                         <th>V.</th>
                                         <th>{t('table.total')}</th>
-                                        <th>{t('page.expenses.rent')}/{t('page.expenses.breakfast')}/{t('page.expenses.bills')}</th>
+                                        <th>{t('page.expenses.paid_for')}</th>
                                         {canEditExpenses && <th className="text-right">{language === 'sv' ? 'Åtgärder' : 'Actions'}</th>}
                                     </tr>
                                 </thead>
@@ -162,7 +207,9 @@ export default function UtgifterPage() {
                                             <tr key={i}><td colSpan={canEditExpenses ? 5 : 4}><div className="h-4 bg-secondary rounded animate-pulse" /></td></tr>
                                         ))
                                     ) : items.length > 0 ? (
-                                        items.map(item => (
+                                        items.map(item => {
+                                            const parts = expenseCategories(item, t)
+                                            return (
                                             <tr key={item.id}>
                                                 <td>
                                                     <span className="font-medium">{item.datum}</span>
@@ -170,8 +217,24 @@ export default function UtgifterPage() {
                                                 </td>
                                                 <td className="text-muted-foreground">V.{item.vecka}</td>
                                                 <td><span className="font-bold" style={{ color: '#C0392B' }}>-{(item.total ?? 0).toLocaleString('sv-SE')} kr</span></td>
-                                                <td className="text-xs text-muted-foreground">
-                                                    {item.hyra ?? 0}/{item.frukost ?? 0}/{item.rakning ?? 0}
+                                                <td>
+                                                    {parts.length === 0 ? (
+                                                        <span className="text-xs text-muted-foreground">—</span>
+                                                    ) : (
+                                                        <div className="flex flex-col gap-0.5">
+                                                            {parts.map(part => (
+                                                                <div key={part.label} className="text-sm">
+                                                                    <span className="font-medium">{part.label}</span>
+                                                                    <span className="text-muted-foreground">
+                                                                        {' '}{part.amount.toLocaleString('sv-SE')} kr
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                            {item.kommentar && (
+                                                                <div className="text-xs text-muted-foreground">{item.kommentar}</div>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 {canEditExpenses && (
                                                     <td>
@@ -194,7 +257,8 @@ export default function UtgifterPage() {
                                                     </td>
                                                 )}
                                             </tr>
-                                        ))
+                                            )
+                                        })
                                     ) : (
                                         <tr><td colSpan={canEditExpenses ? 5 : 4} className="text-center py-12 text-muted-foreground">{t('page.expenses.empty')}</td></tr>
                                     )}
@@ -306,6 +370,7 @@ function ExpenseForm({ supabase, t, activeOrgId, initialData, onClose, onSuccess
         frukost: amountOrEmpty(initialData?.frukost),
         rakning: amountOrEmpty(initialData?.rakning),
         annat: amountOrEmpty(initialData?.annat),
+        kommentar: initialData?.kommentar ?? "",
         rapporterat_av: initialData?.rapporterat_av ?? "",
         datum: initialData?.datum ?? new Date().toISOString().split('T')[0],
     })
@@ -333,14 +398,22 @@ function ExpenseForm({ supabase, t, activeOrgId, initialData, onClose, onSuccess
             frukost,
             rakning,
             annat,
+            kommentar: data.kommentar.trim() || null,
             total,
             rapporterat_av: data.rapporterat_av,
             datum: data.datum,
             organisation_id: activeOrgId,
         }
-        const { error: saveError } = isEdit
+        let { error: saveError } = isEdit
             ? await supabase.from('utgifter').update(payload).eq('id', initialData.id)
             : await supabase.from('utgifter').insert([payload])
+        if (saveError && /kommentar|schema cache|column/i.test(saveError.message)) {
+            const { kommentar: _comment, ...withoutComment } = payload
+            const retry = isEdit
+                ? await supabase.from('utgifter').update(withoutComment).eq('id', initialData.id)
+                : await supabase.from('utgifter').insert([withoutComment])
+            saveError = retry.error
+        }
         setLoading(false)
         if (saveError) {
             setError(saveError.message)
@@ -390,6 +463,15 @@ function ExpenseForm({ supabase, t, activeOrgId, initialData, onClose, onSuccess
                                 />
                             </div>
                         ))}
+                        <div className="space-y-1.5 col-span-2">
+                            <label className="text-sm font-semibold">{t('page.expenses.comment')}</label>
+                            <input
+                                className="input-premium"
+                                value={data.kommentar}
+                                onChange={(e) => set('kommentar', e.target.value)}
+                                placeholder={t('page.expenses.comment_placeholder')}
+                            />
+                        </div>
                         <div className="space-y-1.5 col-span-2">
                             <label className="text-sm font-semibold">{t('page.expenses.reported_by')}</label>
                             <input className="input-premium" value={data.rapporterat_av} onChange={(e) => set('rapporterat_av', e.target.value)} />
