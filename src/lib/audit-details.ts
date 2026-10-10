@@ -23,6 +23,7 @@ const RESOURCE_LABEL: Record<string, { sv: string; en: string }> = {
     document: { sv: 'Dokument', en: 'Document' },
     organisation: { sv: 'Organisation', en: 'Organisation' },
     organisation_member: { sv: 'Medlem', en: 'Member' },
+    member_mail: { sv: 'Utskick', en: 'Mailing' },
 }
 
 const FIELD_LABEL: Record<string, { sv: string; en: string }> = {
@@ -225,6 +226,26 @@ export function formatAuditDetails(input: {
         return bits.length
             ? (language === 'sv' ? `Uppdaterade inställningar: ${bits.join(', ')}` : `Updated settings: ${bits.join(', ')}`)
             : (language === 'sv' ? 'Uppdaterade inställningar' : 'Updated settings')
+    }
+
+    if (resource === 'member_mail') {
+        const count = Number(details.recipient_count)
+        const subject = typeof details.subject === 'string' ? details.subject : null
+        const countText = Number.isFinite(count) && count > 0
+            ? (language === 'sv' ? `${count} medlemmar` : `${count} members`)
+            : (language === 'sv' ? 'medlemmar' : 'members')
+        if (subject) {
+            return language === 'sv'
+                ? `Skickade utskick till ${countText}: ${subject}`
+                : `Sent mailing to ${countText}: ${subject}`
+        }
+        if (details.type === 'reminder') {
+            return language === 'sv' ? 'Skickade betalningspåminnelse' : 'Sent payment reminder'
+        }
+        if (details.type === 'receipt') {
+            return language === 'sv' ? 'Skickade kvitto' : 'Sent receipt'
+        }
+        return language === 'sv' ? `Skickade utskick till ${countText}` : `Sent mailing to ${countText}`
     }
 
     if (resource === 'organisation') {
