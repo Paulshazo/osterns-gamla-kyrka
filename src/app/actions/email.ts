@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server"
 import { getActiveOrgId } from "@/app/actions/org"
+import { logAuditAction } from "@/app/actions/audit"
 
 // --------------------------------------------------------
 // Get Resend config from app_settings (per organisation)
@@ -41,33 +42,83 @@ function inboxHeaders() {
     }
 }
 
+function resendPayload(cfg: Awaited<ReturnType<typeof getResendConfig>>, payload: {
+    to: string
+    subject: string
+    html: string
+    text: string
+}, urgent = true) {
+    return {
+        from: cfg.from,
+        to: [payload.to],
+        reply_to: cfg.fromEmail,
+        subject: payload.subject,
+        html: payload.html,
+        text: payload.text,
+        ...(urgent ? { headers: inboxHeaders() } : {}),
+    }
+}
+
 async function sendResendEmail(cfg: Awaited<ReturnType<typeof getResendConfig>>, payload: {
     to: string
     subject: string
     html: string
     text: string
-}) {
+}, urgent = true) {
     const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${cfg.apiKey}`,
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-            from: cfg.from,
-            to: [payload.to],
-            reply_to: cfg.fromEmail,
-            subject: payload.subject,
-            html: payload.html,
-            text: payload.text,
-            headers: inboxHeaders(),
-        }),
+        body: JSON.stringify(resendPayload(cfg, payload, urgent)),
     })
     if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.message ?? 'Resend API error')
     }
     return res.json()
+}
+
+function escapeHtml(value: string) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+}
+
+function isValidEmail(value: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+async function assertCanSendMemberMail(orgId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Ej inloggad')
+
+    const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+    if (profile?.role === 'superuser') {
+        throw new Error('Super användare kan inte skicka utskick.')
+    }
+    if (profile?.role === 'superadmin' || profile?.role === 'admin') return { user, supabase }
+
+    const { data: membership } = await supabase
+        .from('organisation_members')
+        .select('role, permissions')
+        .eq('user_id', user.id)
+        .eq('organisation_id', orgId)
+        .eq('is_active', true)
+        .maybeSingle()
+    if (!membership) throw new Error('Inte behörig till organisationen')
+    if (membership.role === 'admin') return { user, supabase }
+    const permissions = Array.isArray(membership.permissions) ? membership.permissions : []
+    if (permissions.includes('stats')) return { user, supabase }
+    throw new Error('Inte behörig att skicka medlemsutskick')
 }
 
 // --------------------------------------------------------
@@ -363,4 +414,129 @@ export async function logLoginAction() {
 // --------------------------------------------------------
 export async function logLogoutAction() {
     await logEvent('logout', 'auth', '', {})
+}
+
+export async function sendMemberMailAction(input: {
+    subject: string
+    body: string
+    mode: 'all' | 'selected'
+    familyIds?: string[]
+}) {
+    try {
+        const subject = input.subject.trim()
+        const body = input.body.trim()
+        if (!subject) return { success: false as const, error: 'Ange ett ämne.', sent: 0, failed: 0 }
+        if (!body) return { success: false as const, error: 'Skriv meddelandet.', sent: 0, failed: 0 }
+        if (subject.length > 200) return { success: false as const, error: 'Ämnet är för långt.', sent: 0, failed: 0 }
+        if (body.length > 20000) return { success: false as const, error: 'Meddelandet är för långt.', sent: 0, failed: 0 }
+
+        const orgId = await getActiveOrgId()
+        if (!orgId) return { success: false as const, error: 'Ingen organisation vald.', sent: 0, failed: 0 }
+
+        const { supabase } = await assertCanSendMemberMail(orgId)
+        const cfg = await getResendConfig()
+
+        let query = supabase
+            .from('familjer')
+            .select('id, familje_namn, make_namn, hustru_namn, mail')
+            .eq('organisation_id', orgId)
+        if (input.mode === 'selected') {
+            const ids = (input.familyIds ?? []).filter(Boolean)
+            if (ids.length === 0) {
+                return { success: false as const, error: 'Välj minst en medlem.', sent: 0, failed: 0 }
+            }
+            query = query.in('id', ids)
+        }
+        const { data: families, error: fetchError } = await query
+        if (fetchError) throw fetchError
+
+        const recipients = new Map<string, { name: string; familyName: string }>()
+        for (const family of families ?? []) {
+            const email = String(family.mail ?? '').trim()
+            if (!isValidEmail(email)) continue
+            const key = email.toLowerCase()
+            if (recipients.has(key)) continue
+            recipients.set(key, {
+                name: family.make_namn || family.hustru_namn || family.familje_namn || '',
+                familyName: family.familje_namn ?? '',
+            })
+        }
+
+        if (recipients.size === 0) {
+            return { success: false as const, error: 'Ingen giltig e-postadress bland de valda medlemmarna.', sent: 0, failed: 0 }
+        }
+
+        const htmlBody = escapeHtml(body).replaceAll('\n', '<br>')
+        const orgName = escapeHtml(cfg.orgName)
+        let sent = 0
+        let failed = 0
+        const errors: string[] = []
+        const queue = [...recipients.entries()]
+
+        const buildMail = (email: string, person: { name: string; familyName: string }) => {
+            const greeting = person.name || person.familyName || email
+            const html = `
+<!DOCTYPE html>
+<html lang="sv">
+<head><meta charset="UTF-8">
+<style>
+  body { font-family: Arial, sans-serif; background: #F7F3EC; padding: 40px 20px; margin: 0; }
+  .container { max-width: 560px; margin: 0 auto; background: #FEFCF8; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+  .header { background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%); padding: 28px 32px; }
+  .header h1 { color: #C9A84C; font-size: 20px; margin: 0; }
+  .header p { color: #A09080; font-size: 13px; margin: 4px 0 0; }
+  .body { padding: 28px 32px; color: #1A1A1A; font-size: 15px; line-height: 1.6; }
+  .footer { background: #F7F3EC; padding: 16px 32px; text-align: center; font-size: 11px; color: #A09080; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>${escapeHtml(subject)}</h1>
+    <p>${orgName}</p>
+  </div>
+  <div class="body">
+    <p style="margin-top:0">Hej ${escapeHtml(greeting)},</p>
+    <p style="margin-bottom:0">${htmlBody}</p>
+  </div>
+  <div class="footer">
+    <p>${orgName}</p>
+  </div>
+</div>
+</body>
+</html>`
+            const text = [`${cfg.orgName}`, '', `Hej ${greeting},`, '', body].join('\n')
+            return { to: email, subject, html, text }
+        }
+
+        for (let i = 0; i < queue.length; i += 5) {
+            const chunk = queue.slice(i, i + 5)
+            const results = await Promise.allSettled(
+                chunk.map(([email, person]) => sendResendEmail(cfg, buildMail(email, person), false)),
+            )
+            results.forEach((result, index) => {
+                const email = chunk[index][0]
+                if (result.status === 'fulfilled') {
+                    sent += 1
+                } else {
+                    failed += 1
+                    errors.push(`${email}: ${result.reason?.message ?? 'kunde inte skickas'}`)
+                }
+            })
+        }
+
+        await logAuditAction('email_sent', 'member_mail', orgId, {
+            subject,
+            recipient_count: sent,
+            failed,
+            mode: input.mode,
+        })
+
+        if (sent === 0) {
+            return { success: false as const, error: errors[0] ?? 'Inget mejl kunde skickas.', sent, failed }
+        }
+        return { success: true as const, sent, failed, errors: errors.slice(0, 5) }
+    } catch (err: any) {
+        return { success: false as const, error: err.message ?? 'Kunde inte skicka utskicket.', sent: 0, failed: 0 }
+    }
 }
