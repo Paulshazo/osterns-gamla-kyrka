@@ -94,7 +94,11 @@ export default function IntakterPage() {
         }
         logAuditAction('delete', 'income', String(deleting.id), {
             total: deleting.total,
-            betalning_id: deleting.betalning_id ?? null,
+            manad: deleting.manad,
+            medlems_avgift: deleting.medlems_avgift,
+            gavor: deleting.gavor,
+            ungdomar: deleting.ungdomar,
+            annat: deleting.annat,
         })
         setDeleting(null)
         fetchItems()
@@ -354,7 +358,14 @@ function IncomeForm({ supabase, t, activeOrgId, initialData, onClose, onSuccess 
             setError(saveError.message)
             return
         }
-        logAuditAction(isEdit ? 'update' : 'create', 'income', String(initialData?.id ?? ''), { total })
+        logAuditAction(isEdit ? 'update' : 'create', 'income', String(initialData?.id ?? ''), {
+            total,
+            manad: data.manad,
+            medlems_avgift,
+            gavor,
+            ungdomar,
+            annat,
+        })
         onSuccess()
     }
 

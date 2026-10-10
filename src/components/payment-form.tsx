@@ -246,9 +246,10 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                 if (err) throw err
                 newPaymentId = formData.id
                 logAuditAction('update', 'payment', String(formData.id), {
-                    familj_id: formData.familj_id,
+                    familje_namn: selectedFamilyData?.familje_namn ?? '',
                     summan: paidAmount,
                     betalat_via: formData.betalat_via,
+                    betalat_till_datum: validUntil,
                 })
             } else {
                 let { data, error: err } = await supabase
@@ -266,9 +267,10 @@ export function PaymentForm({ onClose, onSuccess, initialData, selectedFamilyId 
                 if (err) throw err
                 newPaymentId = data?.[0]?.id ?? null
                 logAuditAction('create', 'payment', String(newPaymentId ?? ''), {
-                    familj_id: formData.familj_id,
+                    familje_namn: selectedFamilyData?.familje_namn ?? '',
                     summan: paidAmount,
                     betalat_via: formData.betalat_via,
+                    betalat_till_datum: validUntil,
                 })
             }
 
