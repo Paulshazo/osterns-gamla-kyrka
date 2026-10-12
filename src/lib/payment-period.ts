@@ -14,6 +14,24 @@ export function formatSwishNumber(raw: string): string {
     return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 8)} ${digits.slice(8)}`
 }
 
+/** Opens the Swish app with the payee number and amount already filled in. */
+export function swishPaymentUrl(input: { amount: number; message?: string }): string {
+    const amount = Math.round(Math.max(0, Number(input.amount) || 0) * 100) / 100
+    const message = (input.message ?? "medlems avgift")
+        .replace(/[^0-9A-Za-zÅÄÖåäö .,:-]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 50)
+    const parts = [`sw=${MEMBERSHIP_SWISH_NUMBER}`]
+    if (amount > 0) {
+        parts.push(`amt=${Number.isInteger(amount) ? String(amount) : amount.toFixed(2)}`)
+    }
+    parts.push("cur=SEK")
+    if (message) parts.push(`msg=${encodeURIComponent(message)}`)
+    parts.push("src=email")
+    return `https://app.swish.nu/1/p/sw/?${parts.join("&")}`
+}
+
 /** 100 kr under 18, 200 kr from 18. Returns null until the personal number can be parsed. */
 export function monthlyFeeFromPersonnummer(pn: string | null | undefined): number | null {
     const age = ageFromPersonnummer(pn)
