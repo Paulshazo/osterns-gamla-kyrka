@@ -403,7 +403,7 @@ export async function sendPaymentReminderAction(params: {
         const swishLabel = formatSwishNumber(MEMBERSHIP_SWISH_NUMBER)
         const swishUrl = swishPaymentUrl({
             amount: due.amount,
-            message: `Medlemsavgift ${familyName}`,
+            message: "medlems avgift",
         })
         const safe = {
             orgName: escapeHtml(cfg.orgName),
