@@ -17,7 +17,7 @@ export function formatSwishNumber(raw: string): string {
 /** Opens the Swish app with the payee number and amount already filled in. */
 export function swishPaymentUrl(input: { amount: number; message?: string }): string {
     const amount = Math.round(Math.max(0, Number(input.amount) || 0) * 100) / 100
-    const message = (input.message ?? "medlems avgift")
+    const message = (input.message ?? "medlemsavgift")
         .replace(/[^0-9A-Za-zÅÄÖåäö .,:-]/g, "")
         .replace(/\s+/g, " ")
         .trim()
