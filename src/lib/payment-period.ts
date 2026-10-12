@@ -1,9 +1,18 @@
-import { addDays, addMonths, format, isAfter, parseISO, startOfDay } from "date-fns"
+import { addDays, addMonths, differenceInCalendarMonths, format, isAfter, parseISO, startOfDay, startOfMonth } from "date-fns"
 import { enUS, sv } from "date-fns/locale"
 import { ageFromPersonnummer } from "@/lib/personnummer"
 
 export const DEFAULT_ADULT_FEE = 200
 export const DEFAULT_CHILD_FEE = 100
+
+/** Swish number printed on payment reminders. */
+export const MEMBERSHIP_SWISH_NUMBER = "1235611819"
+
+export function formatSwishNumber(raw: string): string {
+    const digits = raw.replace(/\D/g, "")
+    if (digits.length !== 10) return digits || raw
+    return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 8)} ${digits.slice(8)}`
+}
 
 /** 100 kr under 18, 200 kr from 18. Returns null until the personal number can be parsed. */
 export function monthlyFeeFromPersonnummer(pn: string | null | undefined): number | null {
@@ -181,6 +190,50 @@ function formatCoverage(months: number, days: number, language: "sv" | "en"): st
         return language === "sv" ? "0 dagar" : "0 days"
     }
     return language === "sv" ? parts.join(" och ") : parts.join(" and ")
+}
+
+export type MembershipDue = {
+    amount: number
+    monthlyFee: number
+    months: number
+    /** First day of the month the unpaid period starts. */
+    from: Date
+}
+
+/**
+ * Amount still to pay, and the month it applies from.
+ * The month is the calendar month of the first unpaid day (the day after paid-until).
+ * Each month in that span, including the current month, is charged at the full monthly fee.
+ * With no payment on file, the span starts at the registration month, or this month if that date is missing.
+ */
+export function membershipDue(input: {
+    monthlyFee: number
+    paidUntil?: string | null
+    registeredOn?: string | null
+    today?: Date
+}): MembershipDue {
+    const today = startOfDay(input.today ?? todayLocal())
+    const monthlyFee = Math.max(0, Math.round(Number(input.monthlyFee) || 0))
+    const paidUntil = parseDateOnly(input.paidUntil)
+    const registered = parseDateOnly(input.registeredOn)
+    const todayMonth = startOfMonth(today)
+    let from = startOfMonth(
+        paidUntil
+            ? addDays(paidUntil, 1)
+            : (registered ?? today),
+    )
+    if (isAfter(from, todayMonth)) from = todayMonth
+    const months = Math.max(1, differenceInCalendarMonths(todayMonth, from) + 1)
+    return {
+        amount: monthlyFee * months,
+        monthlyFee,
+        months,
+        from,
+    }
+}
+
+export function formatMembershipMonth(date: Date): string {
+    return format(date, "MMMM yyyy", { locale: sv })
 }
 
 export function describePaymentPeriod(period: PaymentPeriod, language: "sv" | "en"): string {

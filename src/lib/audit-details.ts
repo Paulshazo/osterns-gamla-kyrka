@@ -195,6 +195,18 @@ export function formatAuditDetails(input: {
     }
 
     if (resource === 'family') {
+        if (input.action === 'email_sent' && details.type === 'reminder') {
+            const dueAmount = money(details.amount)
+            const fromMonth = typeof details.from_month === 'string' ? details.from_month : null
+            const who = family ? (language === 'sv' ? `familjen ${family}` : `family ${family}`) : (language === 'sv' ? 'familjen' : 'the family')
+            const bits = [
+                dueAmount,
+                fromMonth ? (language === 'sv' ? `från ${fromMonth}` : `from ${fromMonth}`) : null,
+            ].filter(Boolean)
+            return language === 'sv'
+                ? `Skickade betalningspåminnelse till ${who}${bits.length ? ` (${bits.join(', ')})` : ''}`
+                : `Sent payment reminder to ${who}${bits.length ? ` (${bits.join(', ')})` : ''}`
+        }
         const who = family ? (language === 'sv' ? `familjen ${family}` : `family ${family}`) : (language === 'sv' ? 'en familj' : 'a family')
         if (input.action === 'delete') return language === 'sv' ? `Raderade ${who}` : `Deleted ${who}`
         if (input.action === 'update') return language === 'sv' ? `Uppdaterade ${who}` : `Updated ${who}`

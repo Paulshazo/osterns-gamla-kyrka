@@ -159,9 +159,6 @@ export default function BetalningarPage() {
             recipientEmail: p.mail,
             familyName: p.familje_namn,
             makeNamn: p.make_namn,
-            overdueDate: p.paid_until
-                ? format(parseISO(p.paid_until), 'd MMM yyyy', { locale })
-                : language === 'sv' ? 'Obetald' : 'Unpaid',
             familyId: p.id,
         })
         setSendingReminder(null)

@@ -3,6 +3,15 @@
 import { createClient } from "@/utils/supabase/server"
 import { getActiveOrgId } from "@/app/actions/org"
 import { logAuditAction } from "@/app/actions/audit"
+import {
+    MEMBERSHIP_SWISH_NUMBER,
+    effectivePaidUntil,
+    familyMonthlyFee,
+    formatMembershipMonth,
+    formatSwishNumber,
+    latestPayment,
+    membershipDue,
+} from "@/lib/payment-period"
 
 // --------------------------------------------------------
 // Get Resend config from app_settings (per organisation)
@@ -308,19 +317,101 @@ export async function sendPaymentReceiptAction(params: {
 // --------------------------------------------------------
 // Send payment reminder
 // --------------------------------------------------------
+type ReminderFamily = {
+    familje_namn: string | null
+    make_namn: string | null
+    hustru_namn: string | null
+    mail: string | null
+    make_manads_avgift?: number | null
+    hustru_manads_avgift?: number | null
+    registreringsdatum?: string | null
+    manuell_obetald?: boolean | null
+    manuell_betalat_till?: string | null
+    barn?: Array<{ namn?: string | null; manads_avgift?: number | null }> | null
+    betalningar?: Array<{
+        total_manads_avgift?: number | null
+        betalat_till_datum?: string | null
+        created_at?: string
+    }> | null
+}
+
+async function loadFamilyForReminder(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    orgId: string | null,
+    familyId: string,
+) {
+    const full = `
+        familje_namn, make_namn, hustru_namn, mail,
+        make_manads_avgift, hustru_manads_avgift, registreringsdatum,
+        manuell_obetald, manuell_betalat_till,
+        barn(namn, manads_avgift),
+        betalningar(total_manads_avgift, betalat_till_datum, created_at)
+    `
+    const base = `
+        familje_namn, make_namn, hustru_namn, mail,
+        make_manads_avgift, hustru_manads_avgift,
+        barn(namn, manads_avgift),
+        betalningar(total_manads_avgift, betalat_till_datum, created_at)
+    `
+    let query = supabase.from('familjer').select(full).eq('id', familyId)
+    if (orgId) query = query.eq('organisation_id', orgId)
+    let { data, error } = await query.maybeSingle()
+    if (error && /registreringsdatum|manuell_obetald|manuell_betalat_till|schema cache|column/i.test(error.message)) {
+        let retry = supabase.from('familjer').select(base).eq('id', familyId)
+        if (orgId) retry = retry.eq('organisation_id', orgId)
+        const second = await retry.maybeSingle()
+        data = second.data as typeof data
+        error = second.error
+    }
+    if (error) throw error
+    return data as ReminderFamily | null
+}
+
 export async function sendPaymentReminderAction(params: {
     recipientEmail: string
     familyName: string
     makeNamn: string
-    overdueDate: string
     familyId: string
 }) {
     try {
         const supabase = await createClient()
         const cfg = await getResendConfig()
-        const orgName = cfg.orgName
+        const orgId = await getActiveOrgId()
+        const family = await loadFamilyForReminder(supabase, orgId, params.familyId)
+        if (!family) throw new Error('Familjen hittades inte.')
 
-        const subject = `Påminnelse om medlemsavgift — ${params.familyName}`
+        const latest = latestPayment(family.betalningar ?? [])
+        const monthlyFee = familyMonthlyFee({ ...family, barn: family.barn ?? [] }) || Number(latest?.total_manads_avgift) || 0
+        const paidUntil = effectivePaidUntil({
+            latestPaidUntil: latest?.betalat_till_datum ?? null,
+            manuellObetald: family.manuell_obetald,
+            manuellBetalatTill: family.manuell_betalat_till,
+        })
+        const due = membershipDue({
+            monthlyFee,
+            paidUntil,
+            registeredOn: family.registreringsdatum,
+        })
+        const familyName = family.familje_namn || params.familyName
+        const greetingName = family.make_namn || family.hustru_namn || params.makeNamn || familyName
+        const recipientEmail = family.mail?.trim() || params.recipientEmail
+        const monthLabel = formatMembershipMonth(due.from)
+        const amountLabel = `${due.amount.toLocaleString('sv-SE')} kr`
+        const monthlyLabel = `${due.monthlyFee.toLocaleString('sv-SE')} kr`
+        const monthsLabel = due.months === 1 ? '1 månad' : `${due.months} månader`
+        const swishLabel = formatSwishNumber(MEMBERSHIP_SWISH_NUMBER)
+        const safe = {
+            orgName: escapeHtml(cfg.orgName),
+            greetingName: escapeHtml(greetingName),
+            familyName: escapeHtml(familyName),
+            monthLabel: escapeHtml(monthLabel),
+            amountLabel: escapeHtml(amountLabel),
+            monthlyLabel: escapeHtml(monthlyLabel),
+            monthsLabel: escapeHtml(monthsLabel),
+            swishLabel: escapeHtml(swishLabel),
+        }
+
+        const subject = `Påminnelse om medlemsavgift — ${familyName} — ${amountLabel}`
         const html = `
 <!DOCTYPE html>
 <html lang="sv">
@@ -334,9 +425,13 @@ export async function sendPaymentReminderAction(params: {
   .body { padding: 28px 32px; }
   .alert { background: #FFF8EE; border: 1px solid #FCD34D; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
   .alert p { color: #78350F; font-size: 13px; margin: 0; }
-  .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #EDE8DF; font-size: 13px; }
+  .row { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-bottom: 1px solid #EDE8DF; font-size: 13px; }
   .row .label { color: #6B6355; }
-  .row .value { font-weight: 600; color: #1A1A1A; }
+  .row .value { font-weight: 600; color: #1A1A1A; text-align: right; }
+  .swish { background: #1A1A1A; border-radius: 12px; padding: 16px 18px; margin: 20px 0; }
+  .swish .label { color: #A09080; font-size: 12px; margin-bottom: 4px; }
+  .swish .number { color: #C9A84C; font-size: 22px; font-weight: 800; letter-spacing: 0.04em; }
+  .note { background: #F7F3EC; border-radius: 10px; padding: 12px 14px; color: #6B6355; font-size: 13px; margin-top: 16px; }
   .footer { background: #F7F3EC; padding: 16px 32px; text-align: center; font-size: 11px; color: #A09080; }
 </style>
 </head>
@@ -344,54 +439,79 @@ export async function sendPaymentReminderAction(params: {
 <div class="container">
   <div class="header">
     <h1>Påminnelse om medlemsavgift</h1>
-    <p>${orgName}</p>
+    <p>${safe.orgName}</p>
   </div>
   <div class="body">
     <p style="color:#1A1A1A; font-size:15px; margin-bottom:20px;">
-      Hej <strong>${params.makeNamn}</strong>,
+      Hej <strong>${safe.greetingName}</strong>,
     </p>
     <div class="alert">
-      <p>Medlemsavgiften för familjen <strong>${params.familyName}</strong> har förfallit. Vänligen betala snarast möjligt.</p>
+      <p>Medlemsavgiften för familjen <strong>${safe.familyName}</strong> ska betalas. Beloppet gäller från <strong>${safe.monthLabel}</strong>.</p>
     </div>
     <div class="row">
-      <span class="label">Familj</span>
-      <span class="value">${params.familyName}</span>
+      <span class="label">Att betala</span>
+      <span class="value">${safe.amountLabel}</span>
     </div>
     <div class="row">
-      <span class="label">Förfallet sedan</span>
-      <span class="value">${params.overdueDate}</span>
+      <span class="label">Månadsavgift</span>
+      <span class="value">${safe.monthlyLabel}</span>
+    </div>
+    <div class="row">
+      <span class="label">Gäller från</span>
+      <span class="value">${safe.monthLabel}</span>
+    </div>
+    <div class="row">
+      <span class="label">Antal månader</span>
+      <span class="value">${safe.monthsLabel}</span>
+    </div>
+    <div class="swish">
+      <div class="label">Betala till Swish</div>
+      <div class="number">${safe.swishLabel}</div>
+    </div>
+    <div class="note">
+      Om ni nyligen har betalat kan ni bortse från detta mejl.
     </div>
     <p style="color:#6B6355; font-size:13px; margin-top:20px;">
       Kontakta oss om du har frågor angående din betalning. Svara på detta mejl så kommer det till församlingen.
     </p>
   </div>
   <div class="footer">
-    <p>${orgName}</p>
+    <p>${safe.orgName}</p>
   </div>
 </div>
 </body>
 </html>`
         const text = [
-            `${orgName} — Påminnelse om medlemsavgift`,
+            `${cfg.orgName} — Påminnelse om medlemsavgift`,
             '',
-            `Hej ${params.makeNamn},`,
+            `Hej ${greetingName},`,
             '',
-            `Medlemsavgiften för familjen ${params.familyName} har förfallit.`,
-            `Förfallet sedan: ${params.overdueDate}`,
+            `Medlemsavgiften för familjen ${familyName} ska betalas.`,
+            `Att betala: ${amountLabel}`,
+            `Månadsavgift: ${monthlyLabel}`,
+            `Gäller från: ${monthLabel}`,
+            `Antal månader: ${monthsLabel}`,
+            `Swish: ${swishLabel}`,
             '',
-            'Vänligen betala snarast möjligt. Svara på detta mejl om du har frågor.',
+            'Om ni nyligen har betalat kan ni bortse från detta mejl.',
+            '',
+            'Svara på detta mejl om du har frågor.',
         ].join('\n')
 
         await sendResendEmail(cfg, {
-            to: params.recipientEmail,
+            to: recipientEmail,
             subject,
             html,
             text,
         })
 
         await logEvent('email_sent', 'family', params.familyId, {
-            to: params.recipientEmail,
+            to: recipientEmail,
             type: 'reminder',
+            familje_namn: familyName,
+            amount: due.amount,
+            from_month: monthLabel,
+            swish: MEMBERSHIP_SWISH_NUMBER,
         })
 
         return { success: true }
