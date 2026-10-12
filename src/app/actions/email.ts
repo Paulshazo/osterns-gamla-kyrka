@@ -11,6 +11,7 @@ import {
     formatSwishNumber,
     latestPayment,
     membershipDue,
+    swishPaymentUrl,
 } from "@/lib/payment-period"
 
 // --------------------------------------------------------
@@ -400,6 +401,10 @@ export async function sendPaymentReminderAction(params: {
         const monthlyLabel = `${due.monthlyFee.toLocaleString('sv-SE')} kr`
         const monthsLabel = due.months === 1 ? '1 månad' : `${due.months} månader`
         const swishLabel = formatSwishNumber(MEMBERSHIP_SWISH_NUMBER)
+        const swishUrl = swishPaymentUrl({
+            amount: due.amount,
+            message: `Medlemsavgift ${familyName}`,
+        })
         const safe = {
             orgName: escapeHtml(cfg.orgName),
             greetingName: escapeHtml(greetingName),
@@ -409,6 +414,7 @@ export async function sendPaymentReminderAction(params: {
             monthlyLabel: escapeHtml(monthlyLabel),
             monthsLabel: escapeHtml(monthsLabel),
             swishLabel: escapeHtml(swishLabel),
+            swishUrl: escapeHtml(swishUrl),
         }
 
         const subject = `Påminnelse om medlemsavgift — ${familyName} — ${amountLabel}`
@@ -429,8 +435,9 @@ export async function sendPaymentReminderAction(params: {
   .row .label { color: #6B6355; }
   .row .value { font-weight: 600; color: #1A1A1A; text-align: right; }
   .swish { background: #1A1A1A; border-radius: 12px; padding: 16px 18px; margin: 20px 0; }
-  .swish .label { color: #A09080; font-size: 12px; margin-bottom: 4px; }
-  .swish .number { color: #C9A84C; font-size: 22px; font-weight: 800; letter-spacing: 0.04em; }
+  .swish .label { color: #FFFFFF; font-size: 12px; margin-bottom: 4px; }
+  .swish .number { color: #FFFFFF; font-size: 22px; font-weight: 800; letter-spacing: 0.04em; }
+  .swish .number a { color: #FFFFFF; text-decoration: underline; }
   .note { background: #F7F3EC; border-radius: 10px; padding: 12px 14px; color: #6B6355; font-size: 13px; margin-top: 16px; }
   .footer { background: #F7F3EC; padding: 16px 32px; text-align: center; font-size: 11px; color: #A09080; }
 </style>
@@ -465,8 +472,10 @@ export async function sendPaymentReminderAction(params: {
       <span class="value">${safe.monthsLabel}</span>
     </div>
     <div class="swish">
-      <div class="label">Betala till Swish</div>
-      <div class="number">${safe.swishLabel}</div>
+      <div class="label" style="color:#FFFFFF;">Betala till Swish</div>
+      <div class="number">
+        <a href="${safe.swishUrl}" style="color:#FFFFFF; text-decoration:underline; font-size:22px; font-weight:800; letter-spacing:0.04em;">${safe.swishLabel}</a>
+      </div>
     </div>
     <div class="note">
       Om ni nyligen har betalat kan ni bortse från detta mejl.
@@ -492,6 +501,7 @@ export async function sendPaymentReminderAction(params: {
             `Gäller från: ${monthLabel}`,
             `Antal månader: ${monthsLabel}`,
             `Swish: ${swishLabel}`,
+            swishUrl,
             '',
             'Om ni nyligen har betalat kan ni bortse från detta mejl.',
             '',
